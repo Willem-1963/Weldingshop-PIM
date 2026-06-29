@@ -1,0 +1,7 @@
+SP Tools import audit
+
+Totaal producten: 3272
+Gematcht CSV + Excel: 2430
+Alleen CSV: 289
+Alleen Excel: 553
+Afbeeldingen: 3604

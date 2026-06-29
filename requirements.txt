@@ -1,0 +1,12 @@
+pandas
+openpyxl
+beautifulsoup4
+requests
+lxml
+pillow
+sqlalchemy
+tqdm
+python-dotenv
+rich
+typer
+playwright
