@@ -1,0 +1,23 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Database
+data/database/*.sqlite
+
+# Output
+data/output/
+
+# Environment
+.env
+config/settings.env
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
