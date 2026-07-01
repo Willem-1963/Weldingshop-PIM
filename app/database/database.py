@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
-DB_PATH = Path("data/database/product_factory.sqlite")
+from app.core.paths import RAW_DATABASE_PATH
+
+DB_PATH = RAW_DATABASE_PATH
 
 
 def get_connection() -> sqlite3.Connection:

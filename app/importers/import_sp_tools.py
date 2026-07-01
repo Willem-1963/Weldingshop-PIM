@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -9,11 +8,11 @@ from bs4 import BeautifulSoup
 from rich.console import Console
 from rich.table import Table
 
+from app.core.paths import INPUT_DIR, OUTPUT_DIR
 from app.database.database import get_connection, init_database, log
 
 console = Console()
 
-INPUT_DIR = Path("data/input")
 EXCEL_FILE = INPUT_DIR / "SP Tools bruto prijslijst 2026 v3.xlsx"
 CSV_FILE = INPUT_DIR / "productdetails.csv"
 
@@ -262,8 +261,8 @@ def run_import() -> None:
     table.add_row("Afbeeldingen", str(images))
     console.print(table)
 
-    Path("data/output").mkdir(parents=True, exist_ok=True)
-    Path("data/output/import_audit_summary.txt").write_text(
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUTPUT_DIR / "import_audit_summary.txt").write_text(
         f"""SP Tools import audit
 
 Totaal producten: {total}

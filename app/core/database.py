@@ -1,12 +1,11 @@
-﻿from pathlib import Path
-from sqlalchemy import create_engine
+﻿from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-DATABASE_DIR = BASE_DIR / "data" / "database"
+from app.core.paths import DATABASE_DIR, ORM_DATABASE_PATH
+
 DATABASE_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_PATH = DATABASE_DIR / "product_factory_v2.sqlite"
+DATABASE_PATH = ORM_DATABASE_PATH
 
 engine = create_engine(
     f"sqlite:///{DATABASE_PATH}",

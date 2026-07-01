@@ -1,5 +1,6 @@
 from app.core.database import SessionLocal
 from app.models.product import Product
+from app.services.export_filter_service import ExportFilterService, ProductExportFilters
 
 
 class ProductRepository:
@@ -12,11 +13,11 @@ class ProductRepository:
             session.close()
 
     @staticmethod
-    def search(query: str, limit: int = 25):
+    def search(query: str, limit: int = 25, export_filters: ProductExportFilters | None = None):
         session = SessionLocal()
         try:
             q = f"%{query}%"
-            return (
+            product_query = (
                 session.query(Product)
                 .filter(
                     (Product.sku.ilike(q)) |
@@ -24,6 +25,10 @@ class ProductRepository:
                     (Product.ai_title.ilike(q)) |
                     (Product.ean.ilike(q))
                 )
+            )
+            product_query = ExportFilterService.apply_to_orm_query(product_query, export_filters)
+            return (
+                product_query
                 .order_by(Product.sku)
                 .limit(limit)
                 .all()

@@ -4,9 +4,9 @@ import csv
 import re
 from pathlib import Path
 
+from app.core.paths import OUTPUT_DIR
 from app.database.database import get_connection
-
-OUTPUT_DIR = Path("data/output")
+from app.services.export_filter_service import ExportFilterService, ProductExportFilters
 
 
 def make_handle(title: str, sku: str) -> str:
@@ -44,18 +44,25 @@ SHOPIFY_COLUMNS = [
 ]
 
 
-def export_shopify_csv(limit: int = 100, output_name: str = "shopify_batch_001.csv") -> Path:
+def export_shopify_csv(
+    limit: int = 100,
+    output_name: str = "shopify_batch_001.csv",
+    export_filters: ProductExportFilters | None = None,
+) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     output_path = OUTPUT_DIR / output_name
 
     with get_connection() as conn:
+        where_clauses, where_params = ExportFilterService.to_sql_where(export_filters)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         products = conn.execute(
-            """
+            f"""
             SELECT * FROM products
+            {where_sql}
             ORDER BY sku
             LIMIT ?
             """,
-            (limit,),
+            (*where_params, limit),
         ).fetchall()
 
         with output_path.open("w", newline="", encoding="utf-8-sig") as f:

@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
 from PySide6.QtCore import Signal
 from app.repositories.product_repository import ProductRepository
 from app.repositories.image_repository import ImageRepository
+from app.services.export_filter_service import ProductExportFilters
 
 
 def format_price(value):
@@ -36,7 +37,7 @@ class ProductTable(QTableWidget):
 
         self.verticalHeader().setVisible(False)
 
-    def load_products(self, query: str = ""):
+    def load_products(self, query: str = "", export_filters: ProductExportFilters | None = None):
         # Niet zoeken bij 1 losse letter; dat voelt traag en levert weinig nuttige resultaten op.
         if query and len(query.strip()) < 2:
             return
@@ -44,7 +45,7 @@ class ProductTable(QTableWidget):
         self.setUpdatesEnabled(False)
         self.clearContents()
 
-        products = ProductRepository.search(query, limit=50)
+        products = ProductRepository.search(query, limit=50, export_filters=export_filters)
         self.setRowCount(len(products))
 
         for row, product in enumerate(products):

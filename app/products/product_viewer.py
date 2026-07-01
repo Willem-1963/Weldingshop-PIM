@@ -3,10 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from app.core.paths import OUTPUT_DIR
 from app.products.product_service import ProductService, ProductSnapshot
 
 
-OUTPUT_DIR = Path("data/output/product_reports")
+REPORTS_OUTPUT_DIR = OUTPUT_DIR / "product_reports"
 
 
 def yes_no(value: bool) -> str:
@@ -56,9 +57,9 @@ def print_snapshot(snapshot: ProductSnapshot) -> None:
 
 
 def export_markdown(snapshot: ProductSnapshot) -> Path:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     product = snapshot.product
-    path = OUTPUT_DIR / f"{product.sku}.md"
+    path = REPORTS_OUTPUT_DIR / f"{product.sku}.md"
 
     lines = [
         f"# {product.sku} - {product.source_title or product.ai_title or ''}",
