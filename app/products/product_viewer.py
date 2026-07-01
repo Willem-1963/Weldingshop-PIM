@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from app.products.product_service import ProductService, ProductSnapshot
+from app.services.product_service import ProductService, ProductDetails
 
 
 OUTPUT_DIR = Path("data/output/product_reports")
@@ -13,7 +13,7 @@ def yes_no(value: bool) -> str:
     return "ja" if value else "nee"
 
 
-def print_snapshot(snapshot: ProductSnapshot) -> None:
+def print_snapshot(snapshot: ProductDetails) -> None:
     product = snapshot.product
 
     print("\nWELDINGSHOP PIM - PRODUCT VIEWER")
@@ -55,7 +55,7 @@ def print_snapshot(snapshot: ProductSnapshot) -> None:
             print(f"- {spec.name}: {spec.value}")
 
 
-def export_markdown(snapshot: ProductSnapshot) -> Path:
+def export_markdown(snapshot: ProductDetails) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     product = snapshot.product
     path = OUTPUT_DIR / f"{product.sku}.md"
@@ -128,7 +128,7 @@ def main() -> None:
     if not args.sku:
         parser.error("Geef een SKU op of gebruik --search")
 
-    snapshot = service.get_by_sku(args.sku)
+    snapshot = service.get_details_by_sku(args.sku)
     if not snapshot:
         print(f"Product niet gevonden: {args.sku}")
         return
