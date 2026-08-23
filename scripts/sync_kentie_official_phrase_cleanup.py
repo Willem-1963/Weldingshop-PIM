@@ -4,14 +4,14 @@ import json
 import sqlite3
 import sys
 
-sys.path.insert(0, "/srv/weldingshop-pim")
-sys.path.insert(0, "/srv/weldingshop-pim/scripts")
+sys.path.insert(0, "/root/weldingshop-pim")
+sys.path.insert(0, "/root/weldingshop-pim/scripts")
 
 from app.shopify.client import ShopifyClient
 from kentie_match_batch_sync import graphql_retry, targeted_live
 
 
-DB = "/srv/weldingshop-pim/data/database/suppliers/kentie.sqlite"
+DB = "/root/weldingshop-pim/data/database/suppliers/kentie.sqlite"
 OLD = "/root/kentie-before-official-phrase-cleanup-20260818.sqlite"
 
 

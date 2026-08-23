@@ -28,7 +28,7 @@ from app.suppliers.routes import supplier_route
 
 
 SLUG = "tecweld"
-OUTPUT_ROOT = Path("/srv/weldingshop-pim/data/content/tecweld")
+OUTPUT_ROOT = Path("/root/weldingshop-pim/data/content/tecweld")
 ACTIVE_STATUSES = {"queued", "running"}
 
 

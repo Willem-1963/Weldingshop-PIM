@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-sys.path.insert(0, "/srv/weldingshop-pim")
+sys.path.insert(0, "/root/weldingshop-pim")
 
 from app.shopify.client import ShopifyClient
 from app.shopify.sync import (
@@ -20,7 +20,7 @@ from app.shopify.sync import (
 )
 
 
-AUDIT_DIR = Path("/srv/weldingshop-pim/data/audit")
+AUDIT_DIR = Path("/root/weldingshop-pim/data/audit")
 
 
 def _image_key(url: str) -> str:

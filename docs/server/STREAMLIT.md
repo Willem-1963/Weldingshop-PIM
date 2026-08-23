@@ -36,5 +36,5 @@ Dashboardacties lopen via Services.
 ## Centrale projectmap
 
 ```text
-/srv/weldingshop-pim
+/root/weldingshop-pim
 ```

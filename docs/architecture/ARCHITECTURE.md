@@ -2,7 +2,7 @@
 
 ## Centrale omgeving
 
-- Projectmap: `/srv/weldingshop-pim`
+- Projectmap: `/root/weldingshop-pim`
 - Dashboard: `https://pim.weldingshop.nl`
 - OpenClaw: `https://ai.weldingshop.nl`
 - Server: Ubuntu 24.04
@@ -69,7 +69,7 @@ Ruwe AI-output wordt niet direct opgeslagen. Alleen gevalideerde JSON wordt verw
 - Let's Encrypt levert SSL.
 - Basic Authentication beschermt het dashboard.
 - Streamlit levert de webinterface.
-- OpenClaw heeft toegang tot `/srv/weldingshop-pim`.
+- OpenClaw heeft toegang tot `/root/weldingshop-pim`.
 
 ## Richting
 

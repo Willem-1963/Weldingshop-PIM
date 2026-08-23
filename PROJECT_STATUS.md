@@ -12,7 +12,7 @@ De volgende sprint is v0.7 Shopify AI Export.
 
 ## Centrale omgeving
 
-- Centrale projectmap: `/srv/weldingshop-pim`
+- Centrale projectmap: `/root/weldingshop-pim`
 - Dashboard: `https://pim.weldingshop.nl`
 - OpenClaw: `https://ai.weldingshop.nl`
 
@@ -32,7 +32,7 @@ De volgende sprint is v0.7 Shopify AI Export.
 - ✓ Basic Authentication
 - ✓ Documentatiestructuur
 - ✓ Templates
-- ✓ OpenClaw heeft toegang tot `/srv/weldingshop-pim`
+- ✓ OpenClaw heeft toegang tot `/root/weldingshop-pim`
 
 ## Werkafspraken
 

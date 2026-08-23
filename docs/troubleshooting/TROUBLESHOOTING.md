@@ -5,7 +5,7 @@
 Werk uitsluitend in:
 
 ```text
-/srv/weldingshop-pim
+/root/weldingshop-pim
 ```
 
 OpenClaw moet toegang hebben tot deze map.

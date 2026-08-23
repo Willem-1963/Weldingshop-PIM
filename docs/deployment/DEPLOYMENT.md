@@ -3,7 +3,7 @@
 ## Centrale projectmap
 
 ```text
-/srv/weldingshop-pim
+/root/weldingshop-pim
 ```
 
 OpenClaw heeft toegang tot deze projectmap.

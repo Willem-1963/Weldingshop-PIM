@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 
-PROJECT = Path("/srv/weldingshop-pim")
+PROJECT = Path("/root/weldingshop-pim")
 PYTHON = PROJECT / ".venv/bin/python"
 WORKER = PROJECT / "scripts/kentie_description_cleanup_worker.py"
 STATE = PROJECT / "data/jobs/kentie-description-cleanup.json"

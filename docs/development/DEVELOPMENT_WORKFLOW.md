@@ -51,7 +51,7 @@ OpenClaw is verantwoordelijk voor:
 Werk in:
 
 ```text
-/srv/weldingshop-pim
+/root/weldingshop-pim
 ```
 
 ## Belangrijke keuzes

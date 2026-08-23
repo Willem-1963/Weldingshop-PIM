@@ -10,7 +10,7 @@
 - Let's Encrypt SSL geconfigureerd.
 - Dashboard draait op `https://pim.weldingshop.nl`.
 - Basic Authentication toegevoegd.
-- OpenClaw gekoppeld aan de projectmap `/srv/weldingshop-pim`.
+- OpenClaw gekoppeld aan de projectmap `/root/weldingshop-pim`.
 - OpenClaw bereikbaar via `https://ai.weldingshop.nl`.
 
 ### Dashboard

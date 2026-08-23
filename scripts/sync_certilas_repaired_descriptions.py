@@ -9,13 +9,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, "/srv/weldingshop-pim")
+sys.path.insert(0, "/root/weldingshop-pim")
 
 from app.shopify.client import ShopifyClient
 from app.shopify.sync import _load_family_variant_options, _shopify_products
 
 
-AUDIT_DIR = Path("/srv/weldingshop-pim/data/audit")
+AUDIT_DIR = Path("/root/weldingshop-pim/data/audit")
 
 
 def run(*, apply: bool, limit: int = 0) -> dict[str, object]:

@@ -11,7 +11,7 @@ Weldingshop PIM wordt het centrale PIM-platform voor Weldingshop: productdata be
 
 ## Centrale omgeving
 
-- Projectmap: `/srv/weldingshop-pim`
+- Projectmap: `/root/weldingshop-pim`
 - Dashboard: `https://pim.weldingshop.nl`
 - OpenClaw: `https://ai.weldingshop.nl`
 - GUI: Streamlit
@@ -22,7 +22,7 @@ Weldingshop PIM wordt het centrale PIM-platform voor Weldingshop: productdata be
 
 ## Huidige status
 
-De infrastructuur is gereed. OpenClaw heeft toegang tot `/srv/weldingshop-pim`.
+De infrastructuur is gereed. OpenClaw heeft toegang tot `/root/weldingshop-pim`.
 
 v0.6 AI Database Integratie is klaar.
 

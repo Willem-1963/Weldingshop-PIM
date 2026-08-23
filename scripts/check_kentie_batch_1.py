@@ -1,7 +1,7 @@
 import json
 import sys
 
-sys.path.insert(0, "/srv/weldingshop-pim")
+sys.path.insert(0, "/root/weldingshop-pim")
 from app.shopify.client import ShopifyClient
 
 skus = [

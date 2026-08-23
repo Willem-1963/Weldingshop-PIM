@@ -19,7 +19,7 @@ Weldingshop PIM ondersteunt:
 De centrale projectmap is:
 
 ```text
-/srv/weldingshop-pim
+/root/weldingshop-pim
 ```
 
 ## Ontwikkelprincipes

@@ -15,7 +15,7 @@ from app.suppliers.on_demand_import import import_official_website_product
 from app.suppliers.quality import quality_policy_for
 
 
-PROJECT = Path("/srv/weldingshop-pim")
+PROJECT = Path("/root/weldingshop-pim")
 DB = PROJECT / "data/database/suppliers/kentie.sqlite"
 STATE = PROJECT / "data/jobs/kentie-description-cleanup.json"
 MAX_ATTEMPTS = 3

@@ -6,16 +6,16 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, "/srv/weldingshop-pim")
-sys.path.insert(0, "/srv/weldingshop-pim/scripts")
+sys.path.insert(0, "/root/weldingshop-pim")
+sys.path.insert(0, "/root/weldingshop-pim/scripts")
 
 from app.shopify.client import ShopifyClient
 from app.shopify.sync import _shopify_products
 from kentie_match_batch_sync import graphql_retry
 
 
-DB = "/srv/weldingshop-pim/data/database/suppliers/kentie.sqlite"
-AUDIT = Path("/srv/weldingshop-pim/data/audit/kentie-shopify-match-cleanup-20260818.json")
+DB = "/root/weldingshop-pim/data/database/suppliers/kentie.sqlite"
+AUDIT = Path("/root/weldingshop-pim/data/audit/kentie-shopify-match-cleanup-20260818.json")
 client = ShopifyClient.from_settings()
 live = _shopify_products(client, "Kentie", "kentie")
 targets: dict[str, dict] = {}
