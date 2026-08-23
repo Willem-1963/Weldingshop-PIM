@@ -5,15 +5,17 @@ __pycache__/
 # Virtual environment
 .venv/
 
-# Database
-data/database/*.sqlite
-
-# Output
-data/output/
+# Runtime data (databases, imports, audit trails and generated assets)
+data/
+logs/
+output/
+backups/
 
 # Environment
 .env
 config/settings.env
+config/.supplier_secrets.key
+*.key
 
 # VS Code
 .vscode/
@@ -21,3 +23,11 @@ config/settings.env
 # Windows
 Thumbs.db
 Desktop.ini
+
+# Local work copies and generated state
+*.bak
+*.bak_*
+*.before-*
+*.work.py
+.pytest_cache/
+.streamlit/

@@ -133,7 +133,10 @@ def import_sp_tools():
             category = clean(csv_row.get("csv_category_full")) or clean(csv_row.get("csv_category"))
             product_type = clean(csv_row.get("csv_article_group")) or product_type
             price = to_float(csv_row.get("csv_price")) or price
-            weight = to_float(csv_row.get("csv_weight")) or weight
+            csv_weight = to_float(csv_row.get("csv_weight"))
+            
+            if csv_weight:
+                weight = csv_weight / 1000
 
         existing = session.query(Product).filter(Product.sku == sku).first()
 

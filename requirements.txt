@@ -4,9 +4,17 @@ beautifulsoup4
 requests
 lxml
 pillow
+pypdf>=6,<7
 sqlalchemy
 tqdm
 python-dotenv
 rich
 typer
 playwright
+openai==2.44.0
+PySide6==6.11.1
+PySide6_Addons==6.11.1
+PySide6_Essentials==6.11.1
+streamlit==1.58.0
+cryptography>=42,<47
+pytest>=8,<10
