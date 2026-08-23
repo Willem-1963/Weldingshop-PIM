@@ -41,5 +41,5 @@ Nginx verzorgt reverse proxy, publieke toegang en SSL-afhandeling voor de webint
 De applicatie staat centraal in:
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```

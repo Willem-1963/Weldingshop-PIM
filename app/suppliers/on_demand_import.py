@@ -32,7 +32,7 @@ from app.suppliers.dutch_content import (
 )
 
 
-TECWELD_CONTENT_ROOT = Path("/srv/ai-product-factory/data/content/tecweld")
+TECWELD_CONTENT_ROOT = Path("/srv/weldingshop-pim/data/content/tecweld")
 
 
 def _official_hosts(supplier: dict[str, Any]) -> set[str]:

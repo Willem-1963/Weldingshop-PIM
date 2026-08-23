@@ -2,13 +2,13 @@
 
 ## Visie
 
-AI Product Factory wordt het centrale PIM-platform voor Weldingshop.
+Weldingshop PIM wordt het centrale PIM-platform voor Weldingshop.
 
 Het platform brengt productdata, leveranciersdata, AI-verrijking, databasebeheer, dashboardbediening en Shopify-export samen in één onderhoudbare serveromgeving.
 
 ## Doel
 
-AI Product Factory ondersteunt:
+Weldingshop PIM ondersteunt:
 
 - Productdata beheren.
 - Producten verrijken met AI.
@@ -19,7 +19,7 @@ AI Product Factory ondersteunt:
 De centrale projectmap is:
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```
 
 ## Ontwikkelprincipes

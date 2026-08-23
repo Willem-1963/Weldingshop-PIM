@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, "/srv/ai-product-factory")
+sys.path.insert(0, "/srv/weldingshop-pim")
 
 from app.shopify.client import ShopifyClient
 from app.shopify.client import get_shopify_settings
@@ -21,7 +21,7 @@ from app.suppliers.hub import get_supplier
 from app.suppliers.on_demand_import import import_official_website_product
 
 
-PROJECT = Path("/srv/ai-product-factory")
+PROJECT = Path("/srv/weldingshop-pim")
 DB = PROJECT / "data/database/suppliers/kentie.sqlite"
 SNAPSHOT = Path("/root/kentie-before-match-222-20260818.sqlite")
 STATE = PROJECT / "data/jobs/kentie-match-222.json"

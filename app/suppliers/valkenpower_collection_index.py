@@ -117,7 +117,7 @@ def collection_index_status() -> dict[str, Any] | None:
 
 def official_breadcrumb_status() -> dict[str, Any]:
     state_path = Path(
-        "/srv/ai-product-factory/data/jobs/valkenpower-category-backfill.json"
+        "/srv/weldingshop-pim/data/jobs/valkenpower-category-backfill.json"
     )
     try:
         state_data = json.loads(state_path.read_text(encoding="utf-8"))

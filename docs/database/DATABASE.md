@@ -2,7 +2,7 @@
 
 ## Basis
 
-AI Product Factory gebruikt SQLite met SQLAlchemy.
+Weldingshop PIM gebruikt SQLite met SQLAlchemy.
 
 Database-interactie loopt via Repositories en Services. GUI en CLI mogen de database niet rechtstreeks benaderen.
 

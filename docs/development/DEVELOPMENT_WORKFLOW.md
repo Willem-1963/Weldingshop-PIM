@@ -2,7 +2,7 @@
 
 ## Principe
 
-AI Product Factory wordt GUI-first en service-first ontwikkeld.
+Weldingshop PIM wordt GUI-first en service-first ontwikkeld.
 
 Nieuwe functionaliteit wordt pas als gereed beschouwd wanneer implementatie, test en documentatie samen kloppen.
 
@@ -51,7 +51,7 @@ OpenClaw is verantwoordelijk voor:
 Werk in:
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```
 
 ## Belangrijke keuzes

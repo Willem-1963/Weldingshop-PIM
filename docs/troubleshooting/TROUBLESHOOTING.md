@@ -5,7 +5,7 @@
 Werk uitsluitend in:
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```
 
 OpenClaw moet toegang hebben tot deze map.

@@ -1,10 +1,10 @@
-# AI Product Factory - Project Status
+# Weldingshop PIM - Project Status
 
 Laatst bijgewerkt: 2026-07-05
 
 ## Projectstatus
 
-AI Product Factory wordt het centrale PIM-platform voor Weldingshop.
+Weldingshop PIM wordt het centrale PIM-platform voor Weldingshop.
 
 v0.6 AI Database Integratie is klaar.
 
@@ -12,7 +12,7 @@ De volgende sprint is v0.7 Shopify AI Export.
 
 ## Centrale omgeving
 
-- Centrale projectmap: `/srv/ai-product-factory`
+- Centrale projectmap: `/srv/weldingshop-pim`
 - Dashboard: `https://pim.weldingshop.nl`
 - OpenClaw: `https://ai.weldingshop.nl`
 
@@ -32,7 +32,7 @@ De volgende sprint is v0.7 Shopify AI Export.
 - ✓ Basic Authentication
 - ✓ Documentatiestructuur
 - ✓ Templates
-- ✓ OpenClaw heeft toegang tot `/srv/ai-product-factory`
+- ✓ OpenClaw heeft toegang tot `/srv/weldingshop-pim`
 
 ## Werkafspraken
 

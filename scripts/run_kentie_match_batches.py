@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
-sys.path.insert(0, "/srv/ai-product-factory")
-sys.path.insert(0, "/srv/ai-product-factory/scripts")
+sys.path.insert(0, "/srv/weldingshop-pim")
+sys.path.insert(0, "/srv/weldingshop-pim/scripts")
 
 from kentie_match_batch_sync import run
 

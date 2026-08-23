@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 
-PROJECT = Path("/srv/ai-product-factory")
+PROJECT = Path("/srv/weldingshop-pim")
 PYTHON = Path("/opt/weldingshop-browser/venv/bin/python")
 WORKER = PROJECT / "scripts/valkenpower_official_category_backfill.py"
 STATE = PROJECT / "data/jobs/valkenpower-category-backfill.json"

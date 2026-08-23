@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /srv/ai-product-factory
+cd /srv/weldingshop-pim
 source .venv/bin/activate
 python main.py run-all
 

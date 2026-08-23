@@ -2,7 +2,7 @@
 
 ## Dashboard
 
-Streamlit is gekozen als webinterface voor AI Product Factory.
+Streamlit is gekozen als webinterface voor Weldingshop PIM.
 
 Dashboard URL:
 
@@ -36,5 +36,5 @@ Dashboardacties lopen via Services.
 ## Centrale projectmap
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```

@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, "/srv/ai-product-factory")
+sys.path.insert(0, "/srv/weldingshop-pim")
 
 from app.product_families import rebuild_product_families
 from app.suppliers.hub import supplier_database_path, utc_now

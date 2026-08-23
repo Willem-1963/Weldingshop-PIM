@@ -1,6 +1,6 @@
 # Documentatie Index
 
-Deze index is de centrale ingang voor alle documentatie van AI Product Factory.
+Deze index is de centrale ingang voor alle documentatie van Weldingshop PIM.
 
 ## Projectstatus
 

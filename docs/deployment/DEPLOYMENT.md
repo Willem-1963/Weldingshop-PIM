@@ -3,7 +3,7 @@
 ## Centrale projectmap
 
 ```text
-/srv/ai-product-factory
+/srv/weldingshop-pim
 ```
 
 OpenClaw heeft toegang tot deze projectmap.

@@ -14,8 +14,8 @@ from urllib.parse import urlparse
 sys.path.insert(0, "/opt/weldingshop-browser/venv/lib/python3.12/site-packages")
 from playwright.async_api import async_playwright
 
-DB = Path("/srv/ai-product-factory/data/database/suppliers/valkenpower.sqlite")
-STATE = Path("/srv/ai-product-factory/data/jobs/valkenpower-category-backfill.json")
+DB = Path("/srv/weldingshop-pim/data/database/suppliers/valkenpower.sqlite")
+STATE = Path("/srv/weldingshop-pim/data/jobs/valkenpower-category-backfill.json")
 CDP_URL = "http://127.0.0.1:9222"
 MAIN_GROUPS = {
     "Werkplaatsuitrusting", "Gereedschap", "Lasapparatuur",

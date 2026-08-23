@@ -1,6 +1,6 @@
-# AI Product Factory - Project Constitution
+# Weldingshop PIM - Project Constitution
 
-Dit document bevat de officiële ontwikkelprincipes en projectregels voor AI Product Factory.
+Dit document bevat de officiële ontwikkelprincipes en projectregels voor Weldingshop PIM.
 
 ## 1. GUI First
 

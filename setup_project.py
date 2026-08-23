@@ -41,7 +41,7 @@ Path("config/settings.example.env").write_text(
 )
 
 Path("README.md").write_text(
-    "# Weldingshop AI Product Factory\n\nEerste leverancier: SP Tools.\n",
+    "# Weldingshop PIM\n\nEerste leverancier: SP Tools.\n",
     encoding="utf-8",
 )
 
