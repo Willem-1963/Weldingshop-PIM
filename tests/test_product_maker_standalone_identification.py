@@ -113,6 +113,7 @@ def test_website_build_does_not_hydrate_from_supplier_pim(monkeypatch):
     calls = []
     draft = {
         "id": 9, "sku": "998044", "supplier_sync_slug": "kentie",
+        "supplier_id": 18, "approved_domains": ["kentie.shop"],
         "source_url": "https://www.kentie.shop/nl/product", "evidence": [],
         "tags": [], "metafields": [], "title": "Titel van website",
         "product_type": "", "category_id": "",
@@ -143,3 +144,31 @@ def test_website_build_does_not_hydrate_from_supplier_pim(monkeypatch):
 
     page._build_product_directly(Service(), 9)
     assert calls == [("website", "https://www.kentie.shop/nl/product")]
+
+
+def test_manual_source_build_creates_verified_incidental_supplier(monkeypatch, tmp_path):
+    from app.product_maker_standalone.service import ProductMakerService
+
+    service = ProductMakerService(tmp_path / "maker.sqlite3")
+    draft_id = service.save_draft(
+        sku="PSP-30-220", vendor="President Safety", purchase_price="1",
+        sale_price="2", unit_factor="1",
+        source_url="https://www.presidentsafety.nl/nl/product",
+    )
+    service.save_automation_settings(
+        draft_id, evidence_enrichment=False, category_suggestion=False,
+        asset_collection=False,
+    )
+    monkeypatch.setattr(page, "probe_product_page", lambda *args: {
+        "domain": "presidentsafety.nl", "vendor": "President Safety",
+    })
+    monkeypatch.setattr(
+        page, "inspect_official_page",
+        lambda service, draft_id, url: {"url": url},
+    )
+
+    page._build_product_directly(service, draft_id)
+
+    draft = service.get_draft(draft_id)
+    assert draft["approved_domains"] == ["presidentsafety.nl"]
+    assert draft["incidental"] == 1

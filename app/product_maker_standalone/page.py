@@ -35,6 +35,7 @@ def _draft_values(draft: dict[str, Any], overrides: dict[str, Any] | None = None
             "purchase_price", "sale_price", "compare_at_price", "initial_quantity",
             "purchase_unit", "sales_unit", "unit_factor", "product_type", "category_id",
             "category_label", "source_url", "notes",
+            "price_from_purchase_invoice",
         )
     }
     values["tags"] = draft.get("tags") or []
@@ -735,6 +736,15 @@ def _editable_product_fields(
         prices = st.columns(2)
         purchase_price = prices[0].text_input("Inkoopprijs", value=draft.get("purchase_price", "0.00"), key=f"pm_ws_buy_{draft_id}")
         sale_price = prices[1].text_input("Verkoopprijs", value=draft.get("sale_price", "0.00"), key=f"pm_ws_sell_{draft_id}")
+        price_from_purchase_invoice = st.toggle(
+            "Prijs komt uit een inkoopfactuur",
+            value=bool(draft.get("price_from_purchase_invoice", False)),
+            key=f"pm_ws_invoice_price_{draft_id}",
+            help=(
+                "Aan: publiceren met €0 is toegestaan en de prijs wordt later vanuit "
+                "een inkoopfactuur aangevuld. Uit: geldige inkoop- en verkoopprijs zijn verplicht."
+            ),
+        )
         compare_at_price = st.text_input("Vergelijkingsprijs", value=draft.get("compare_at_price", ""), key=f"pm_ws_compare_{draft_id}")
         initial_quantity = st.number_input("Beginvoorraad", min_value=0, value=int(draft.get("initial_quantity") or 0), key=f"pm_ws_stock_{draft_id}")
         units = st.columns(2)
@@ -759,6 +769,7 @@ def _editable_product_fields(
         "short_description": short_description, "description_html": description_html,
         "seo_title": seo_title, "seo_description": seo_description,
         "purchase_price": purchase_price, "sale_price": sale_price,
+        "price_from_purchase_invoice": price_from_purchase_invoice,
         "compare_at_price": compare_at_price, "initial_quantity": initial_quantity,
         "purchase_unit": purchase_unit, "sales_unit": sales_unit, "unit_factor": unit_factor,
         "product_type": product_type, "category_id": draft.get("category_id", ""),
@@ -825,6 +836,22 @@ def _missing_price(values: dict[str, Any]) -> bool:
 def _direct_publish_dialog(
     service: ProductMakerService, selected_id: int, values: dict[str, Any],
 ) -> None:
+    price_from_purchase_invoice = st.toggle(
+        "Prijs komt uit een inkoopfactuur",
+        value=bool(values.get("price_from_purchase_invoice", False)),
+        key=f"pm_direct_invoice_price_{selected_id}",
+        help=(
+            "Aan: Shopify-publicatie met €0 is toegestaan; de prijs wordt later "
+            "vanuit een inkoopfactuur aangevuld. Uit: prijzen zijn verplicht."
+        ),
+    )
+    if price_from_purchase_invoice:
+        st.info("Prijsstatus: wacht op een inkoopfactuur. Publicatie met €0 is toegestaan.")
+    elif _missing_price(values):
+        st.error(
+            "Publicatie is geblokkeerd: vul een inkoop- en verkoopprijs in, "
+            "of zet ‘Prijs komt uit een inkoopfactuur’ aan."
+        )
     status = st.radio(
         "Productstatus", ["Actief", "Concept"], horizontal=True,
         key=f"pm_direct_status_{selected_id}",
@@ -840,7 +867,7 @@ def _direct_publish_dialog(
 
     st.markdown("#### Waarschuwingen")
     warnings = []
-    if _missing_price(values):
+    if _missing_price(values) and not price_from_purchase_invoice:
         warnings.append("Prijs niet ingevuld")
     if int(values.get("initial_quantity") or 0) <= 0 and not continue_selling:
         warnings.append("Voorraad niet ingevuld")
@@ -857,11 +884,16 @@ def _direct_publish_dialog(
     if publish_col.button(
         "Publiceren naar Shopify", type="primary", width="stretch",
         key=f"pm_direct_confirm_{selected_id}",
+        disabled=_missing_price(values) and not price_from_purchase_invoice,
     ):
         try:
             active = status == "Actief"
             with st.spinner("Product opbouwen en publiceren naar Shopify…"):
-                build_id = service.save_draft(selected_id or None, **values)
+                publish_values = {
+                    **values,
+                    "price_from_purchase_invoice": price_from_purchase_invoice,
+                }
+                build_id = service.save_draft(selected_id or None, **publish_values)
                 _build_product_directly(service, build_id)
                 built_draft = service.get_draft(build_id)
                 location_id = _automatic_publish_location(built_draft)
@@ -899,6 +931,43 @@ def _build_product_directly(service: ProductMakerService, draft_id: int) -> None
     """Build one saved draft using the enabled standalone automation standards."""
     draft = service.get_draft(draft_id)
     settings = service.automation_settings(draft_id)
+    if draft.get("price_from_purchase_invoice"):
+        service.refresh_purchase_invoice_price(draft_id)
+        draft = service.get_draft(draft_id)
+    if (
+        settings["source_research"]
+        and draft.get("source_url")
+        and not draft.get("approved_domains")
+        and not draft.get("supplier_id")
+    ):
+        # A manually entered product can have an explicit official source URL
+        # without having passed through the website-identification wizard. Verify
+        # the page before trusting its host, then retain that host as the narrowly
+        # scoped allowlist for this incidental supplier.
+        identity = probe_product_page(
+            str(draft["source_url"]), str(draft.get("sku") or ""), "SKU",
+        )
+        domain = identity["domain"]
+        temporary_supplier = next(
+            (
+                item for item in service.list_suppliers()
+                if not item.get("sync_slug")
+                if domain in set(item.get("approved_domains") or [])
+            ),
+            None,
+        )
+        supplier_id = (
+            int(temporary_supplier["id"]) if temporary_supplier else
+            service.save_supplier(
+                f"{identity['vendor']} (incidenteel: {domain})",
+                domain, brand=identity["vendor"],
+            )
+        )
+        service.save_draft(
+            draft_id, **_draft_values(draft, {"supplier_id": supplier_id}),
+        )
+        service.mark_incidental(draft_id)
+        draft = service.get_draft(draft_id)
     if draft.get("supplier_sync_slug") and not settings["source_research"]:
         synced_supplier = _synced_supplier_for_draft(draft)
         if not synced_supplier:
@@ -1180,6 +1249,7 @@ def show_product_maker() -> None:
             st.success("Ontbrekende prijzen opnieuw uit de leveranciers-PIM geladen.")
         draft = draft or {
             "purchase_price": "0.00", "sale_price": "0.00", "compare_at_price": "",
+            "price_from_purchase_invoice": False,
             "purchase_unit": "stuk", "sales_unit": "stuk", "unit_factor": "1",
             "tags": [], "metafields": [], "assets": [],
         }

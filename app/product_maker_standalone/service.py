@@ -5,7 +5,7 @@ import hashlib
 import re
 import sqlite3
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 DEFAULT_DATABASE = Path(__file__).resolve().parents[2] / "data" / "standalone_product_maker.sqlite3"
 DEFAULT_UPLOAD_DIRECTORY = Path(__file__).resolve().parents[2] / "data" / "product_maker_uploads"
+DEFAULT_ERP_DATABASE = Path("/opt/weldingshop-erp/current/data/weldingshop_erp.sqlite3")
 EVIDENCE_STATES = {"proven", "derived", "proposed", "missing", "conflict"}
 
 
@@ -71,6 +72,8 @@ class ProductMakerService:
                     category_id TEXT NOT NULL DEFAULT '',category_label TEXT NOT NULL DEFAULT '',
                     tags_json TEXT NOT NULL DEFAULT '[]',metafields_json TEXT NOT NULL DEFAULT '[]',
                     source_url TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',
+                    price_from_purchase_invoice INTEGER NOT NULL DEFAULT 0
+                        CHECK(price_from_purchase_invoice IN(0,1)),
                     status TEXT NOT NULL DEFAULT 'draft',shopify_product_id TEXT NOT NULL DEFAULT '',
                     shopify_variant_id TEXT NOT NULL DEFAULT '',shopify_admin_url TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,updated_at TEXT NOT NULL
@@ -128,6 +131,11 @@ class ProductMakerService:
             if "incidental" not in draft_columns:
                 db.execute(
                     "ALTER TABLE pm_drafts ADD COLUMN incidental INTEGER NOT NULL DEFAULT 0"
+                )
+            if "price_from_purchase_invoice" not in draft_columns:
+                db.execute(
+                    "ALTER TABLE pm_drafts ADD COLUMN price_from_purchase_invoice "
+                    "INTEGER NOT NULL DEFAULT 0 CHECK(price_from_purchase_invoice IN(0,1))"
                 )
 
     def sync_registered_suppliers(self, suppliers: Iterable[dict[str, Any]]) -> int:
@@ -298,7 +306,11 @@ class ProductMakerService:
             "tags_json": json.dumps(lines(values.get("tags") or []), ensure_ascii=False),
             "metafields_json": json.dumps(values.get("metafields") or [], ensure_ascii=False),
             "source_url": str(values.get("source_url") or "").strip(),
-            "notes": str(values.get("notes") or "").strip(),"updated_at": now,
+            "notes": str(values.get("notes") or "").strip(),
+            "price_from_purchase_invoice": int(bool(
+                values.get("price_from_purchase_invoice", False)
+            )),
+            "updated_at": now,
         }
         columns = list(record)
         with self.connect() as db:
@@ -551,13 +563,18 @@ class ProductMakerService:
             f"metafield.{item.get('namespace')}.{item.get('key')}"
             for item in draft["metafields"] if item.get("namespace") and item.get("key")
         }
+        deferred_price = bool(draft.get("price_from_purchase_invoice"))
         checks = {
             "SKU aanwezig": bool(draft["sku"]),
             "Leverancier/merk aanwezig": bool(draft["vendor"]),
             "Titel aanwezig": bool(draft["title"]),
             "Omschrijving aanwezig": bool(draft["description_html"]),
-            "Inkoopprijs geldig": Decimal(draft["purchase_price"]) > 0,
-            "Verkoopprijs geldig": Decimal(draft["sale_price"]) > 0,
+            "Inkoopprijs geldig of komt uit inkoopfactuur": (
+                Decimal(draft["purchase_price"]) > 0 or deferred_price
+            ),
+            "Verkoopprijs geldig of wacht op inkoopfactuur": (
+                Decimal(draft["sale_price"]) > 0 or deferred_price
+            ),
             "Eenheden compleet": bool(draft["purchase_unit"] and draft["sales_unit"] and Decimal(draft["unit_factor"]) > 0),
             "Officiële productbron": bool(
                 verified_supplier_pim or (
@@ -573,6 +590,79 @@ class ProductMakerService:
         return {"ready": all(checks.values()), "checks": checks,
                 "score": round(100 * sum(checks.values()) / len(checks)),
                 "conflicts": conflicts}
+
+    def refresh_purchase_invoice_price(
+        self, draft_id: int, erp_database: str | Path = DEFAULT_ERP_DATABASE,
+    ) -> dict[str, Any] | None:
+        """Import the latest exact-SKU purchase price from the ERP invoice history."""
+        draft = self.get_draft(draft_id)
+        if not draft.get("price_from_purchase_invoice"):
+            return None
+        database = Path(erp_database)
+        if not database.is_file():
+            return None
+        normalized_sku = re.sub(r"[^A-Z0-9]", "", str(draft["sku"]).upper())
+        with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as erp:
+            erp.row_factory = sqlite3.Row
+            row = erp.execute(
+                """SELECT supplier_name,supplier_article_number,shopify_sku,
+                          invoice_number,invoice_date,unit_price,currency
+                   FROM supplier_product_purchase_history
+                   WHERE UPPER(REPLACE(REPLACE(REPLACE(shopify_sku,'.',''),'-',''),' ',''))=?
+                   ORDER BY invoice_date DESC,id DESC LIMIT 1""",
+                (normalized_sku,),
+            ).fetchone()
+        if not row:
+            return None
+        price = self._money(row["unit_price"], "Inkoopfactuurprijs")
+        values = {
+            key: draft.get(key) for key in (
+                "supplier_id", "sku", "ean", "manufacturer_number", "vendor",
+                "title", "description_html", "short_description", "seo_title",
+                "seo_description", "purchase_price", "sale_price",
+                "compare_at_price", "initial_quantity", "purchase_unit",
+                "sales_unit", "unit_factor", "product_type", "category_id",
+                "category_label", "tags", "metafields", "source_url", "notes",
+                "price_from_purchase_invoice",
+            )
+        }
+        values["purchase_price"] = price
+        proposed_sale_price = ""
+        if Decimal(str(draft.get("sale_price") or "0")) <= 0:
+            proposed_sale_price = str(
+                (Decimal(price) * Decimal("1.41")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP,
+                )
+            )
+            values["sale_price"] = proposed_sale_price
+        self.save_draft(draft_id, **values)
+        self.add_evidence(
+            draft_id, "purchase_price", price, state="proven",
+            source_title=(
+                f"Inkoopfactuur {row['invoice_number']} · {row['supplier_name']}"
+            ),
+            source_excerpt=(
+                f"Factuurdatum {row['invoice_date']}; leveranciersartikel "
+                f"{row['supplier_article_number']}; netto stuksprijs {price} "
+                f"{row['currency'] or 'EUR'}."
+            ),
+            matched_by="exact_shopify_sku", confidence=1, approved=True,
+        )
+        if proposed_sale_price:
+            self.add_evidence(
+                draft_id, "sale_price", proposed_sale_price, state="proposed",
+                source_title="Automatisch verkoopprijsvoorstel",
+                source_excerpt=(
+                    f"Geen verkoopprijs gekoppeld; inkoopprijs {price} × 1,41 = "
+                    f"{proposed_sale_price}."
+                ),
+                matched_by="purchase_price_markup_1_41", confidence=1,
+                approved=False,
+            )
+        return {
+            **dict(row), "purchase_price": price,
+            "proposed_sale_price": proposed_sale_price,
+        }
 
     def start_research(self, draft_id: int, mode: str, query: str) -> int:
         with self.connect() as db:
