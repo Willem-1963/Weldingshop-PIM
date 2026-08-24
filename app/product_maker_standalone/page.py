@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 from html import escape
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -109,7 +112,7 @@ def _create_pim_identification(
         category_id="", category_label="", tags=[], metafields=[],
         source_url="", notes="Geïdentificeerd vanuit de leveranciers-PIM.",
     )
-    service.clear_source_material(draft_id)
+    service.clear_source_material(draft_id, preserve_manual_uploads=True)
     service.mark_incidental(draft_id, False)
     service.save_automation_settings(draft_id, source_research=False)
     _build_product_directly(service, draft_id)
@@ -455,8 +458,66 @@ def _research_panel(service: ProductMakerService, draft_id: int) -> None:
 
 
 def _assets_panel(service: ProductMakerService, draft_id: int) -> None:
-    assets = service.list_assets(draft_id)
     st.markdown("### 3. Foto’s en documenten")
+    st.markdown("#### Foto handmatig toevoegen")
+    uploaded_image = st.file_uploader(
+        "Kies een foto vanaf je computer",
+        type=["jpg", "jpeg", "png", "webp"],
+        key=f"pm_manual_image_file_{draft_id}",
+    )
+    upload_title = st.text_input(
+        "Alternatieve tekst voor upload (optioneel)",
+        key=f"pm_manual_upload_title_{draft_id}",
+    ).strip()
+    upload_verified = st.checkbox(
+        "Ik bevestig dat de geüploade foto exact dit artikel toont",
+        key=f"pm_manual_upload_verified_{draft_id}",
+    )
+    if st.button(
+        "Geüploade foto toevoegen", key=f"pm_manual_upload_add_{draft_id}",
+        disabled=uploaded_image is None or not upload_verified,
+    ):
+        try:
+            service.save_uploaded_image(
+                draft_id, uploaded_image.name, uploaded_image.getvalue(),
+                title=upload_title,
+            )
+            st.success("Foto geüpload en geselecteerd voor Shopify.")
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+
+    st.caption("Of voeg een foto toe via een openbare link:")
+    manual_url = st.text_input(
+        "Openbare foto-URL",
+        key=f"pm_manual_image_url_{draft_id}",
+        placeholder="https://leverancier.nl/productfoto.jpg",
+        help="Shopify moet de afbeelding via een openbare HTTPS-link kunnen ophalen.",
+    ).strip()
+    manual_title = st.text_input(
+        "Alternatieve tekst (optioneel)", key=f"pm_manual_image_title_{draft_id}",
+    ).strip()
+    exact_product = st.checkbox(
+        "Ik bevestig dat dit een officiële foto van exact dit artikel is",
+        key=f"pm_manual_image_verified_{draft_id}",
+    )
+    if st.button(
+        "Foto toevoegen", key=f"pm_manual_image_add_{draft_id}",
+        disabled=not manual_url or not exact_product,
+    ):
+        if not manual_url.startswith("https://"):
+            st.error("Gebruik een openbare HTTPS-link naar de foto.")
+        else:
+            service.add_asset(
+                draft_id, "image", manual_url,
+                title=manual_title or "Handmatig toegevoegde productfoto",
+                source_url=manual_url, official=True,
+                identifier_verified=True, selected=True,
+            )
+            st.success("Foto toegevoegd en geselecteerd voor Shopify.")
+            st.rerun()
+
+    assets = service.list_assets(draft_id)
     if not assets:
         st.info("Nog geen officiële foto’s of documenten gevonden.")
         return
@@ -706,9 +767,21 @@ def _editable_product_fields(
     }
 
 
+def _preview_image_source(value: str) -> str:
+    """Return a browser-safe source for remote and locally uploaded images."""
+    path = Path(str(value or ""))
+    if not path.is_absolute():
+        return str(value or "")
+    if not path.is_file():
+        return ""
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 def _theme_preview(draft: dict[str, Any]) -> None:
     images = [item for item in draft.get("assets", []) if item["kind"] == "image" and item["selected"]]
-    image_url = images[0]["url"] if images else ""
+    image_url = _preview_image_source(images[0]["url"]) if images else ""
     price = escape(str(draft.get("sale_price") or "0.00")).replace(".", ",")
     title = escape(draft.get("title") or "Producttitel verschijnt hier")
     vendor = escape(draft.get("vendor") or "Merk")
@@ -739,6 +812,87 @@ def _theme_preview(draft: dict[str, Any]) -> None:
     <div class="stock">● Op voorraad</div><button>IN WINKELWAGEN</button>
     <div class="description">{description}</div></section></main>"""
     components.html(html, height=790, scrolling=True)
+
+
+def _missing_price(values: dict[str, Any]) -> bool:
+    try:
+        return float(str(values.get("sale_price") or "0").replace(",", ".")) <= 0
+    except ValueError:
+        return True
+
+
+@st.dialog("Publiceren naar Shopify", width="large")
+def _direct_publish_dialog(
+    service: ProductMakerService, selected_id: int, values: dict[str, Any],
+) -> None:
+    status = st.radio(
+        "Productstatus", ["Actief", "Concept"], horizontal=True,
+        key=f"pm_direct_status_{selected_id}",
+    )
+    publish_all_channels = st.radio(
+        "Publiceren op alle kanalen", ["Aan", "Uit"], horizontal=True,
+        key=f"pm_direct_channels_{selected_id}",
+    ) == "Aan"
+    continue_selling = st.radio(
+        "Doorgaan met verkopen zonder voorraad", ["Aan", "Uit"], horizontal=True,
+        key=f"pm_direct_continue_selling_{selected_id}",
+    ) == "Aan"
+
+    st.markdown("#### Waarschuwingen")
+    warnings = []
+    if _missing_price(values):
+        warnings.append("Prijs niet ingevuld")
+    if int(values.get("initial_quantity") or 0) <= 0 and not continue_selling:
+        warnings.append("Voorraad niet ingevuld")
+    elif int(values.get("initial_quantity") or 0) <= 0:
+        st.caption("Voorraad niet ingevuld: N.v.t. — doorgaan zonder voorraad staat aan.")
+    if status == "Concept" and publish_all_channels:
+        st.caption("Publiceren op alle kanalen: N.v.t. voor een conceptproduct.")
+    for warning in warnings:
+        st.warning(warning)
+    if not warnings:
+        st.success("Geen blokkerende prijs- of voorraadwaarschuwingen.")
+
+    publish_col, cancel_col = st.columns(2)
+    if publish_col.button(
+        "Publiceren naar Shopify", type="primary", width="stretch",
+        key=f"pm_direct_confirm_{selected_id}",
+    ):
+        try:
+            active = status == "Actief"
+            with st.spinner("Product opbouwen en publiceren naar Shopify…"):
+                build_id = service.save_draft(selected_id or None, **values)
+                _build_product_directly(service, build_id)
+                built_draft = service.get_draft(build_id)
+                location_id = _automatic_publish_location(built_draft)
+                result = publish(
+                    service, build_id, location_id, active=active,
+                    publish_all_channels=publish_all_channels,
+                    continue_selling=continue_selling,
+                )
+            _clear_product_editor_widgets()
+            if active:
+                channel_text = (
+                    f" en op {result['published_channels']} verkoopkanalen gepubliceerd"
+                    if publish_all_channels else " zonder verkoopkanalen te koppelen"
+                )
+                st.success(f"Product is actief gemaakt{channel_text}.")
+            else:
+                st.success("Product als Shopify-concept opgeslagen.")
+            link_columns = st.columns(2) if result.get("storefront_url") else [st]
+            link_columns[0].link_button(
+                "Open product in Shopify", result["admin_url"], width="stretch",
+            )
+            if result.get("storefront_url"):
+                link_columns[1].link_button(
+                    "Open op weldingshop.nl", result["storefront_url"], width="stretch",
+                )
+        except Exception as exc:
+            st.error(f"Opbouwen of publiceren naar Shopify mislukt: {exc}")
+    if cancel_col.button(
+        "Cancel / terug", width="stretch", key=f"pm_direct_cancel_{selected_id}",
+    ):
+        st.rerun()
 
 
 def _build_product_directly(service: ProductMakerService, draft_id: int) -> None:
@@ -1094,21 +1248,7 @@ def show_product_maker() -> None:
             key=f"pm_build_now_{selected_id}",
         )
         if build_now:
-            try:
-                with st.spinner("Product opbouwen en actief publiceren in Shopify…"):
-                    build_id = service.save_draft(selected_id or None, **values)
-                    _build_product_directly(service, build_id)
-                    built_draft = service.get_draft(build_id)
-                    location_id = _automatic_publish_location(built_draft)
-                    result = publish(service, build_id, location_id, active=True)
-                _clear_product_editor_widgets()
-                st.success(
-                    "Product is geaccepteerd door Shopify, actief gemaakt en op "
-                    f"{result['published_channels']} verkoopkanalen gepubliceerd."
-                )
-                st.link_button("Open product in Shopify", result["admin_url"])
-            except Exception as exc:
-                st.error(f"Opbouwen of publiceren in Shopify mislukt: {exc}")
+            _direct_publish_dialog(service, selected_id, values)
         st.caption("Live voorvertoning: wijzigingen links worden direct zichtbaar, ook vóór opslaan.")
         build_warning = st.session_state.pop("pm_build_warning", None)
         if build_warning:

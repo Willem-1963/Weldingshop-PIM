@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from urllib.parse import urlparse
 
 
 DEFAULT_DATABASE = Path(__file__).resolve().parents[2] / "data" / "standalone_product_maker.sqlite3"
+DEFAULT_UPLOAD_DIRECTORY = Path(__file__).resolve().parents[2] / "data" / "product_maker_uploads"
 EVIDENCE_STATES = {"proven", "derived", "proposed", "missing", "conflict"}
 
 
@@ -451,19 +453,25 @@ class ProductMakerService:
 
     def add_asset(self, draft_id: int, kind: str, url: str, *, title: str = "",
                   source_url: str = "", official: bool = False,
-                  identifier_verified: bool = False) -> None:
+                  identifier_verified: bool = False, selected: bool = False) -> int:
         if kind not in {"image", "datasheet", "manual", "safety", "document"}:
             raise ValueError("Ongeldig bestandstype")
         with self.connect() as db:
             db.execute(
                 """INSERT INTO pm_assets(draft_id,kind,url,title,source_url,official,
-                   identifier_verified,selected,created_at) VALUES(?,?,?,?,?,?,?,0,?)
+                   identifier_verified,selected,created_at) VALUES(?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(draft_id,kind,url) DO UPDATE SET title=excluded.title,
                    source_url=excluded.source_url,official=excluded.official,
-                   identifier_verified=excluded.identifier_verified""",
+                   identifier_verified=excluded.identifier_verified,
+                   selected=MAX(pm_assets.selected,excluded.selected)""",
                 (int(draft_id), kind, url, title, source_url, int(official),
-                 int(identifier_verified), utc_now()),
+                 int(identifier_verified), int(selected), utc_now()),
             )
+            row = db.execute(
+                "SELECT id FROM pm_assets WHERE draft_id=? AND kind=? AND url=?",
+                (int(draft_id), kind, url),
+            ).fetchone()
+            return int(row["id"])
 
     def select_asset(self, asset_id: int, selected: bool) -> None:
         with self.connect() as db:
@@ -475,12 +483,47 @@ class ProductMakerService:
                 "SELECT * FROM pm_assets WHERE draft_id=? ORDER BY kind,id", (int(draft_id),)
             )]
 
-    def clear_source_material(self, draft_id: int) -> None:
+    def save_uploaded_image(
+        self, draft_id: int, filename: str, content: bytes, *, title: str = "",
+    ) -> int:
+        """Store a manually uploaded image and select it for publication."""
+        suffix = Path(str(filename or "")).suffix.casefold()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            raise ValueError("Gebruik een JPG-, PNG- of WebP-afbeelding")
+        if not content:
+            raise ValueError("De gekozen afbeelding is leeg")
+        if len(content) > 20 * 1024 * 1024:
+            raise ValueError("De afbeelding mag maximaal 20 MB groot zijn")
+        upload_directory = DEFAULT_UPLOAD_DIRECTORY / str(int(draft_id))
+        upload_directory.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(content).hexdigest()
+        path = upload_directory / f"{digest}{suffix}"
+        if not path.exists():
+            path.write_bytes(content)
+        return self.add_asset(
+            draft_id, "image", str(path),
+            title=title or Path(filename).stem or "Handmatig toegevoegde productfoto",
+            source_url="handmatige upload", official=True,
+            identifier_verified=True, selected=True,
+        )
+
+    def clear_source_material(
+        self, draft_id: int, *, preserve_manual_uploads: bool = False,
+    ) -> None:
         """Remove evidence and assets before rebuilding from another source route."""
         with self.connect() as db:
             db.execute("DELETE FROM pm_evidence WHERE draft_id=?", (int(draft_id),))
-            db.execute("DELETE FROM pm_assets WHERE draft_id=?", (int(draft_id),))
-            self._audit(db, int(draft_id), "source_material_cleared", {})
+            if preserve_manual_uploads:
+                db.execute(
+                    "DELETE FROM pm_assets WHERE draft_id=? AND source_url<>'handmatige upload'",
+                    (int(draft_id),),
+                )
+            else:
+                db.execute("DELETE FROM pm_assets WHERE draft_id=?", (int(draft_id),))
+            self._audit(
+                db, int(draft_id), "source_material_cleared",
+                {"preserve_manual_uploads": preserve_manual_uploads},
+            )
 
     def quality_report(self, draft_id: int) -> dict[str, Any]:
         draft = self.get_draft(draft_id)

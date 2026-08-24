@@ -3669,7 +3669,14 @@ def save_product_maker_values(
         saved_images = 0
         for position, image in enumerate(images or [], start=1):
             image_url = str(image.get("url") or "").strip()
-            if not image_url or not image.get("selected"):
+            # Supplier product_images is consumed as a public URL catalog.
+            # Locally uploaded productmaker files remain owned by pm_assets and
+            # are staged to Shopify by the standalone publisher.
+            if (
+                not image_url.startswith(("http://", "https://"))
+                or not _is_publishable_image_url(image_url)
+                or not image.get("selected")
+            ):
                 continue
             conn.execute(
                 """INSERT INTO product_images(sku,image_url,position,alt_text)

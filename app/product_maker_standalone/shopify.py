@@ -1,16 +1,48 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import re
+from pathlib import Path
 import unicodedata
 import uuid
 from typing import Any
+
+import requests
 
 from app.shopify.client import ShopifyClient, get_metafield_definitions, get_shopify_locations
 from app.ai.providers.openai_provider import OpenAIProvider
 
 from .service import ProductMakerService, utc_now
+
+
+def _shopify_image_source(client: ShopifyClient, value: str) -> str:
+    """Upload a local productmaker image to Shopify's staged storage."""
+    path = Path(value)
+    if not path.is_absolute():
+        return value
+    if not path.is_file():
+        raise ValueError(f"Geüploade foto niet gevonden: {path.name}")
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    payload = client.graphql(
+        """mutation($input:[StagedUploadInput!]!){stagedUploadsCreate(input:$input){
+        stagedTargets{url resourceUrl parameters{name value}}
+        userErrors{field message}}}""",
+        {"input": [{"resource": "IMAGE", "filename": path.name,
+                    "mimeType": mime_type, "httpMethod": "POST"}]},
+    ).get("stagedUploadsCreate") or {}
+    errors = payload.get("userErrors") or []
+    if errors:
+        raise RuntimeError("Foto-upload naar Shopify mislukt: " + str(errors))
+    target = (payload.get("stagedTargets") or [])[0]
+    fields = {item["name"]: item["value"] for item in target.get("parameters") or []}
+    response = requests.post(
+        target["url"], data=fields,
+        files={"file": (path.name, path.read_bytes(), mime_type)}, timeout=180,
+    )
+    response.raise_for_status()
+    return str(target["resourceUrl"])
 
 
 def product_metafield_definitions() -> list[dict[str, Any]]:
@@ -122,6 +154,7 @@ def _product_handle(draft: dict[str, Any]) -> str:
 
 def publish(
     service: ProductMakerService, draft_id: int, location_id: str, *, active: bool = False,
+    publish_all_channels: bool = True, continue_selling: bool = False,
 ) -> dict[str, Any]:
     report = service.quality_report(draft_id)
     if not report["ready"]:
@@ -163,7 +196,7 @@ def publish(
     # productSet werkt dat product bij en de succesvolle uitkomst herstelt
     # hieronder automatisch de lokale product- en variantkoppeling.
     selected_images = [
-        item["url"] for item in draft["assets"]
+        _shopify_image_source(client, item["url"]) for item in draft["assets"]
         if item["kind"] == "image" and item["selected"] and item["official"]
         and item["identifier_verified"]
     ]
@@ -185,7 +218,7 @@ def publish(
     variant: dict[str, Any] = {
         "optionValues": [{"optionName": "Title", "name": "Default Title"}],
         "price": draft["sale_price"], "sku": draft["sku"], "taxable": True,
-        "inventoryPolicy": "DENY",
+        "inventoryPolicy": "CONTINUE" if continue_selling else "DENY",
         "inventoryItem": {"sku": draft["sku"], "cost": draft["purchase_price"],
                           "tracked": True, "requiresShipping": True},
     }
@@ -276,7 +309,8 @@ def publish(
                         )
                     )
         published_channels = (
-            _publish_to_all_channels(client, str(product["id"])) if active else 0
+            _publish_to_all_channels(client, str(product["id"]))
+            if active and publish_all_channels else 0
         )
         admin_url = f"https://{client.shop_domain}/admin/products/{str(product['id']).rsplit('/', 1)[-1]}"
         final_status = "active" if active else "shopify_draft"
@@ -295,6 +329,10 @@ def publish(
             "status": final_status,
             "product_id": product["id"],
             "admin_url": admin_url,
+            "storefront_url": (
+                f"https://weldingshop.nl/products/{product.get('handle') or handle}"
+                if active else ""
+            ),
             "published_channels": published_channels,
             "removed_from_pim": removed_from_pim,
         }

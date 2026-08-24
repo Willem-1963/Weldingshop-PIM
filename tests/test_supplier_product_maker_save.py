@@ -94,3 +94,39 @@ def test_productmaker_creates_missing_sku_at_selected_supplier(monkeypatch, tmp_
     assert product["sale_price"] == 1700
     assert product["content_locked"] == 1
     assert json.loads(product["raw_data_json"])["product_maker_created"] is True
+
+
+def test_productmaker_does_not_copy_local_upload_path_to_supplier_images(
+    monkeypatch, tmp_path,
+):
+    database = tmp_path / "supplier.sqlite"
+    with sqlite3.connect(database) as db:
+        db.executescript(
+            """CREATE TABLE products(
+              sku TEXT PRIMARY KEY,supplier_sku TEXT,ean TEXT,vendor TEXT,brand TEXT,
+              source_title TEXT,source_description TEXT,sale_price REAL,cost_price REAL,
+              purchase_unit TEXT DEFAULT 'stuk',sales_unit TEXT DEFAULT 'stuk',
+              purchase_units_per_sales_unit REAL DEFAULT 1,stock_quantity INTEGER,
+              available INTEGER,product_type TEXT,product_group_name TEXT,ai_title TEXT,
+              html_description TEXT,ai_tags_json TEXT,raw_data_json TEXT DEFAULT '{}',
+              source_present INTEGER DEFAULT 1,content_locked INTEGER DEFAULT 0,
+              content_locked_at TEXT,first_seen_at TEXT,last_seen_at TEXT,updated_at TEXT
+            );
+            CREATE TABLE product_images(
+              sku TEXT,image_url TEXT,position INTEGER,alt_text TEXT,
+              UNIQUE(sku,image_url)
+            );
+            INSERT INTO products(sku,raw_data_json) VALUES('LOCAL-1','{}');"""
+        )
+    monkeypatch.setattr(hub, "init_supplier_database", lambda slug: database)
+
+    result = hub.save_product_maker_values(
+        "supplier", "LOCAL-1", {"title": "Lokale foto", "sale_price": 1},
+        [{"url": "/root/weldingshop-pim/data/product_maker_uploads/1/photo.jpg",
+          "selected": True}],
+    )
+
+    with sqlite3.connect(database) as db:
+        image_count = db.execute("SELECT COUNT(*) FROM product_images").fetchone()[0]
+    assert result["saved_images"] == 0
+    assert image_count == 0

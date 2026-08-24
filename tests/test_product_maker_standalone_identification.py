@@ -90,8 +90,9 @@ def test_pim_identification_reuses_active_draft(monkeypatch):
         def mark_incidental(self, draft_id, incidental):
             pass
 
-        def clear_source_material(self, draft_id):
+        def clear_source_material(self, draft_id, **options):
             calls["cleared"] = draft_id
+            calls["preserve_manual_uploads"] = options.get("preserve_manual_uploads")
 
         def save_automation_settings(self, draft_id, **settings):
             pass
@@ -102,7 +103,10 @@ def test_pim_identification_reuses_active_draft(monkeypatch):
         {"sku": "998042", "ean": "8719349021097", "brand": "Kentie"},
     )
     assert result == 9
-    assert calls == {"draft_id": 9, "sku": "998042", "cleared": 9}
+    assert calls == {
+        "draft_id": 9, "sku": "998042", "cleared": 9,
+        "preserve_manual_uploads": True,
+    }
 
 
 def test_website_build_does_not_hydrate_from_supplier_pim(monkeypatch):
