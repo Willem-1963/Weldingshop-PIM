@@ -5352,8 +5352,13 @@ with source_sales_pricing_subtab:
         """,
         unsafe_allow_html=True,
     )
+    st.info(
+        "De leveranciersregel kan direct worden opgeslagen, ook als deze "
+        "leverancier nog geen producten in de PIM heeft. Een productvoorvertoning "
+        "is alleen een latere controle en is niet vereist voor opslaan."
+    )
     if st.button(
-        "Verkoopprijsregel bij leverancier opslaan",
+        "Verkoopprijsregel direct bij leverancier opslaan",
         key=f"save_sales_rule_config_{selected_slug}",
         help=(
             "Slaat de gekozen rekenmethode direct en duurzaam op. Hiervoor is "
