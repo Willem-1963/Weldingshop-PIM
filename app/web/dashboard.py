@@ -1958,30 +1958,35 @@ if main_section == "Back-ups":
         backup_confirmed = st.checkbox(
             "Ik heb het wachtwoord buiten deze server veilig vastgelegd",
         )
-        password_valid = (
-            len(backup_password) >= 12
-            and backup_password == confirm_password
-            and backup_confirmed
-        )
         create_backup = st.form_submit_button(
             "Versleutelde serverback-up maken", type="primary",
-            width="stretch", disabled=not password_valid,
+            width="stretch",
         )
     progress_notice = st.empty()
     if create_backup:
-        try:
-            with st.spinner("Volledige herstelback-up wordt opgebouwd…"):
-                result = create_server_backup(
-                    backup_password,
-                    progress=lambda message: progress_notice.info(message),
-                )
-            st.session_state["latest_server_backup"] = result
-            st.success(
-                f"Back-up voltooid en versleuteld in {DEFAULT_BACKUP_DIR}. "
-                "Je vindt daar met WinSCP het archief en het SHA-256-bestand."
+        if len(backup_password) < 12:
+            st.error("Gebruik een back-upwachtwoord van minimaal 12 tekens.")
+        elif backup_password != confirm_password:
+            st.error("De twee ingevoerde wachtwoorden zijn niet gelijk.")
+        elif not backup_confirmed:
+            st.error(
+                "Bevestig eerst dat je het wachtwoord buiten deze server veilig "
+                "hebt vastgelegd."
             )
-        except Exception as exc:
-            st.error(f"Serverback-up mislukt: {exc}")
+        else:
+            try:
+                with st.spinner("Volledige herstelback-up wordt opgebouwd…"):
+                    result = create_server_backup(
+                        backup_password,
+                        progress=lambda message: progress_notice.info(message),
+                    )
+                st.session_state["latest_server_backup"] = result
+                st.success(
+                    f"Back-up voltooid en versleuteld in {DEFAULT_BACKUP_DIR}. "
+                    "Je vindt daar met WinSCP het archief en het SHA-256-bestand."
+                )
+            except Exception as exc:
+                st.error(f"Serverback-up mislukt: {exc}")
 
     st.markdown("#### Beschikbare serverback-ups")
     backups = list_server_backups()
