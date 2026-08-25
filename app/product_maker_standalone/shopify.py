@@ -88,18 +88,19 @@ def suggest_categories(query: str) -> list[dict[str, Any]]:
             nodes{id name fullName isLeaf}}}}""", {"search": term},
         )
         return ((data.get("taxonomy") or {}).get("categories") or {}).get("nodes") or []
-    direct = search(query)
-    if direct:
-        return direct
-    # Shopify-taxonomie zoekt hoofdzakelijk op Engelse categoriebenamingen.
-    # Deze vertaling levert alleen zoektermen; de gebruiker kiest de categorie.
+    # Shopify's taxonomy search is primarily English. Searching a Dutch product
+    # type directly can either return nothing or, worse, an unrelated fuzzy hit
+    # (for example ``snijmondstuk`` used to match cutting pliers). Derive English
+    # parent-product terms from the complete product context before searching.
     try:
         provider = OpenAIProvider()
         response = provider.client.with_options(timeout=30.0, max_retries=0).responses.create(
             model=os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-5.6-terra"),
             input=(
-                "Vertaal deze Nederlandse productcategorie naar maximaal drie korte "
-                "Engelse Shopify-taxonomiezoektermen. Geen uitleg, alleen JSON-array: "
+                "Bepaal voor deze productcontext het hoofdproduct en geef maximaal "
+                "drie korte Engelse zoektermen voor de Shopify-producttaxonomie. "
+                "Gebruik voor een reserveonderdeel ook de categorie van het bovenliggende "
+                "verkoopbare product. Geen uitleg, alleen JSON-array: "
                 + json.dumps(query, ensure_ascii=False)
             ),
         )
@@ -114,7 +115,8 @@ def suggest_categories(query: str) -> list[dict[str, Any]]:
         for item in search(str(term)):
             if item.get("id"):
                 merged[str(item["id"])] = item
-    return list(merged.values())
+    # Preserve manual English taxonomy search when translation is unavailable.
+    return list(merged.values()) or search(query)
 
 
 def _validated_metafields(

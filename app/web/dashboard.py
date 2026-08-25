@@ -5104,16 +5104,22 @@ with source_sales_pricing_subtab:
 
     scoped_sales_rules = list_sales_price_rules(selected_slug)
     if scoped_sales_rules:
-        st.dataframe(pd.DataFrame([
-            {
-                "ID": rule["id"], "Actief": bool(rule["enabled"]),
-                "Naam": rule["name"],
-                "Niveau": MATCH_FIELDS.get(rule["match_field"], rule["match_field"]),
-                "Waarde": rule["match_value"] or "Alle producten",
-                "Rekenmethode": SALES_RULE_TYPES.get(rule["rule_type"], rule["rule_type"]),
-                "Getal": rule["rule_value"], "Prioriteit": rule["priority"],
-            } for rule in scoped_sales_rules
-        ]), hide_index=True, width="stretch")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "ID": rule["id"], "Actief": bool(rule["enabled"]),
+                    "Naam": rule["name"],
+                    "Niveau": MATCH_FIELDS.get(rule["match_field"], rule["match_field"]),
+                    "Waarde": rule["match_value"] or "Alle producten",
+                    "Rekenmethode": SALES_RULE_TYPES.get(rule["rule_type"], rule["rule_type"]),
+                    "Getal": rule["rule_value"], "Prioriteit": rule["priority"],
+                } for rule in scoped_sales_rules
+            ]),
+            hide_index=True,
+            width="stretch",
+            # Header plus minimaal vijf zichtbare gegevensregels.
+            height=220,
+        )
         scoped_rule_by_label = {
             f"#{rule['id']} · {rule['name']}": rule for rule in scoped_sales_rules
         }

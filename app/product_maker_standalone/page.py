@@ -1011,7 +1011,12 @@ def _build_product_directly(service: ProductMakerService, draft_id: int) -> None
             service.save_draft(draft_id, **_draft_values(draft, overrides))
             draft = service.get_draft(draft_id)
     if settings["category_suggestion"] and not draft.get("category_id"):
-        categories = suggest_categories(draft.get("product_type") or draft.get("title") or draft["sku"])
+        category_context = " | ".join(
+            str(value).strip() for value in (
+                draft.get("product_type"), draft.get("title"), draft.get("vendor"),
+            ) if str(value or "").strip()
+        ) or str(draft["sku"])
+        categories = suggest_categories(category_context)
         if categories:
             category = categories[0]
             service.save_draft(
