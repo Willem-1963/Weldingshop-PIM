@@ -140,16 +140,17 @@ def _git_bundle(repository: Path, target: Path) -> dict[str, Any]:
     if not (repository / ".git").exists():
         return {"repository": str(repository), "included": False}
     target.parent.mkdir(parents=True, exist_ok=True)
+    git_command = ["git", "-c", f"safe.directory={repository}"]
     subprocess.run(
-        ["git", "bundle", "create", str(target), "--all"],
+        [*git_command, "bundle", "create", str(target), "--all"],
         cwd=repository, check=True, capture_output=True, text=True,
     )
     commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repository, check=True,
+        [*git_command, "rev-parse", "HEAD"], cwd=repository, check=True,
         capture_output=True, text=True,
     ).stdout.strip()
     dirty = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=repository, check=True,
+        [*git_command, "status", "--porcelain"], cwd=repository, check=True,
         capture_output=True, text=True,
     ).stdout.strip()
     if dirty:
