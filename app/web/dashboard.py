@@ -51,6 +51,7 @@ from app.suppliers.hub import (
 )
 from app.server_backup import (
     DEFAULT_BACKUP_DIR,
+    backup_storage_summary,
     create_server_backup,
     list_server_backups,
     verify_server_backup,
@@ -1955,6 +1956,21 @@ if main_section == "Back-ups":
 
     st.markdown("#### Beschikbare serverback-ups")
     backups = list_server_backups()
+    storage = backup_storage_summary()
+    storage_columns = st.columns(3)
+    storage_columns[0].metric("Aantal back-ups", storage["backup_count"])
+    storage_columns[1].metric(
+        "Ruimte door back-ups",
+        f"{storage['backup_bytes'] / (1024 ** 3):.2f} GB",
+    )
+    storage_columns[2].metric(
+        "Vrije serverruimte",
+        f"{storage['disk_free_bytes'] / (1024 ** 3):.1f} GB",
+        help=(
+            "Vrij op het bestandssysteem van de back-upmap; totale capaciteit: "
+            f"{storage['disk_total_bytes'] / (1024 ** 3):.1f} GB."
+        ),
+    )
     if not backups:
         st.info("Er is nog geen volledige serverback-up gemaakt.")
     else:

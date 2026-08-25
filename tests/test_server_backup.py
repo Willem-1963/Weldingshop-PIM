@@ -1,7 +1,8 @@
 import sqlite3
 
 from app.server_backup import (
-    create_server_backup, list_server_backups, verify_server_backup,
+    PROJECT_ROOT, backup_storage_summary, create_server_backup,
+    list_server_backups, verify_server_backup,
 )
 
 
@@ -30,6 +31,10 @@ def test_encrypted_backup_contains_consistent_sqlite_snapshot(tmp_path):
     assert result["database_count"] == 2
     backups = list_server_backups(tmp_path / "backups")
     assert backups[0]["size"] > 0
+    storage = backup_storage_summary(tmp_path / "backups")
+    assert storage["backup_count"] == 1
+    assert storage["backup_bytes"] >= backups[0]["size"]
+    assert storage["disk_total_bytes"] > storage["disk_free_bytes"]
     assert verify_server_backup(
         backups[0]["path"], backup_dir=tmp_path / "backups"
     )["valid"] is True
@@ -42,3 +47,8 @@ def test_backup_rejects_short_password(tmp_path):
         assert "12 tekens" in str(exc)
     else:
         raise AssertionError("Kort wachtwoord werd geaccepteerd")
+
+
+def test_default_project_root_is_repository_root():
+    assert (PROJECT_ROOT / "app" / "server_backup.py").is_file()
+    assert (PROJECT_ROOT / ".git").exists()

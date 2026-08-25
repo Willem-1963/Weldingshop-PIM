@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BACKUP_DIR = Path("/root/weldingshop-backups")
 ERP_SOURCE_ROOT = Path("/root/weldingshop-erp")
 ERP_ACTIVE_ROOT = Path("/opt/weldingshop-erp/current")
@@ -235,6 +235,31 @@ def list_server_backups(backup_dir: str | Path = DEFAULT_BACKUP_DIR) -> list[dic
             "checksum_path": str(checksum_file) if checksum_file.exists() else "",
         })
     return result
+
+
+def backup_storage_summary(
+    backup_dir: str | Path = DEFAULT_BACKUP_DIR,
+) -> dict[str, int]:
+    """Return archive usage and filesystem capacity for the backup location."""
+    root = Path(backup_dir)
+    disk_probe = root if root.exists() else root.parent
+    while not disk_probe.exists() and disk_probe != disk_probe.parent:
+        disk_probe = disk_probe.parent
+    disk = shutil.disk_usage(disk_probe)
+    backups = list_server_backups(root)
+    backup_bytes = sum(item["size"] for item in backups)
+    checksum_bytes = sum(
+        Path(item["checksum_path"]).stat().st_size
+        for item in backups
+        if item["checksum_path"] and Path(item["checksum_path"]).is_file()
+    )
+    return {
+        "backup_count": len(backups),
+        "backup_bytes": backup_bytes + checksum_bytes,
+        "disk_total_bytes": disk.total,
+        "disk_used_bytes": disk.used,
+        "disk_free_bytes": disk.free,
+    }
 
 
 def verify_server_backup(
