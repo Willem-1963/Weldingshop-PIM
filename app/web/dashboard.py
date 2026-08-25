@@ -57,6 +57,12 @@ from app.server_backup import (
     list_server_backups,
     verify_server_backup,
 )
+from app.shopify_backup import (
+    DEFAULT_SHOPIFY_BACKUP_DIR,
+    create_shopify_catalog_backup,
+    list_shopify_catalog_backups,
+    verify_shopify_catalog_backup,
+)
 from app.shopify.client import (
     DEFAULT_API_VERSION,
     get_metafield_definitions,
@@ -1913,138 +1919,283 @@ if main_section == "Labels":
     st.stop()
 
 if main_section == "Back-ups":
-    st.title("Veilige serverback-up")
+    st.title("Back-ups")
     st.caption(
-        "Maak één versleuteld herstelarchief van PIM, ERP, databases, bestanden, "
-        "configuratie, secrets en serverinstellingen."
+        "Open ieder back-uponderdeel via een eigen tabblad en bouw gecontroleerde, "
+        "versleutelde herstelarchieven op."
     )
-    st.warning(
-        "Het archief bevat gevoelige gegevens en encryptiesleutels. Gebruik een "
-        "uniek sterk wachtwoord, bewaar dat apart en deel het nooit via e-mail."
-    )
-    st.markdown("#### Nieuwe herstelback-up maken")
-    estimate = cached_server_backup_estimate()
-    estimate_columns = st.columns(2)
-    estimate_columns[0].metric(
-        "Geschatte maximale back-upomvang",
-        f"{estimate['archive_upper_bytes'] / (1024 ** 3):.2f} GB",
-        help=(
-            "Conservatieve bovengrens op basis van de gegevens die nu worden "
-            "meegenomen. Compressie maakt het uiteindelijke bestand meestal kleiner."
-        ),
-    )
-    estimate_columns[1].metric(
-        "Tijdelijk benodigde werkruimte",
-        f"{estimate['temporary_required_bytes'] / (1024 ** 3):.2f} GB",
-        help=(
-            "Tijdens het maken bestaan de werkkopie, het gecomprimeerde archief en "
-            "het versleutelde archief korte tijd naast elkaar."
-        ),
-    )
-    st.info(
-        f"De back-up wordt op de server opgeslagen in `{DEFAULT_BACKUP_DIR}`. "
-        "Daar vind je met WinSCP zowel het `.enc`-bestand als het "
-        "`.sha256`-bestand."
-    )
-    with st.form("encrypted_server_backup", clear_on_submit=True):
-        password_columns = st.columns(2)
-        backup_password = password_columns[0].text_input(
-            "Back-upwachtwoord", type="password",
-            help="Minimaal 12 tekens. Dit wachtwoord wordt niet opgeslagen.",
-        )
-        confirm_password = password_columns[1].text_input(
-            "Wachtwoord herhalen", type="password",
-        )
-        backup_confirmed = st.checkbox(
-            "Ik heb het wachtwoord buiten deze server veilig vastgelegd",
-        )
-        create_backup = st.form_submit_button(
-            "Versleutelde serverback-up maken", type="primary",
-            width="stretch",
-        )
-    progress_notice = st.empty()
-    if create_backup:
-        if len(backup_password) < 12:
-            st.error("Gebruik een back-upwachtwoord van minimaal 12 tekens.")
-        elif backup_password != confirm_password:
-            st.error("De twee ingevoerde wachtwoorden zijn niet gelijk.")
-        elif not backup_confirmed:
-            st.error(
-                "Bevestig eerst dat je het wachtwoord buiten deze server veilig "
-                "hebt vastgelegd."
+    shopify_backup_component_names = [
+        "Producten", "Slimme collecties", "Handmatige collecties",
+        "Metafield-definities", "Metaobjects", "Thema’s", "Blogs",
+        "Bestanden", "Opgeslagen zoekopdrachten", "Pagina’s", "Menu’s",
+        "Voorraad", "Policies", "Verzendzones", "Klanten", "Orders",
+        "Winkel klonen",
+    ]
+    server_main_tab, shopify_main_tab = st.tabs(["Server", "Shopify"])
+    with server_main_tab:
+        st.success("Beschikbaar · volledige versleutelde PIM- en ERP-serverback-up")
+        st.caption("De bediening staat onder **Serverback-up** op deze pagina.")
+    planned_backup_components = {
+        "Slimme collecties": "Collectieregels, sortering, publicaties en metafields.",
+        "Handmatige collecties": "Collectie-inhoud, productvolgorde en metafields.",
+        "Metafield-definities": "Definities per Shopify-eigenaarstype.",
+        "Metaobjects": "Metaobjectdefinities, records en onderlinge verwijzingen.",
+        "Thema’s": "Thema-informatie en alle afzonderlijke themabestanden.",
+        "Blogs": "Blogs, artikelen, auteursinformatie en afbeeldingen.",
+        "Bestanden": "Originele bestanden uit Shopify Files met controlesommen.",
+        "Opgeslagen zoekopdrachten": "Opgeslagen filters voor producten, orders en bestanden.",
+        "Pagina’s": "Pagina-inhoud, SEO, publicaties en metafields.",
+        "Menu’s": "Navigatiestructuur en geneste menu-items.",
+        "Voorraad": "Voorraadaantallen per artikel en Shopify-locatie.",
+        "Policies": "Privacy-, retour-, verzend- en algemene voorwaarden.",
+        "Verzendzones": "Verzendprofielen, zones, methoden en tarieven.",
+        "Klanten": "Klantrecords, adressen, tags en metafields.",
+        "Orders": "Historische orders, orderregels, betalingen en fulfilmentgegevens.",
+        "Winkel klonen": "Gecontroleerde opbouw van een nieuwe winkel uit back-upmodules.",
+    }
+    with shopify_main_tab:
+        st.caption("Kies hieronder welk onderdeel van de Shopify-winkel je wilt beheren.")
+        shopify_component_tabs = st.tabs(shopify_backup_component_names)
+        with shopify_component_tabs[0]:
+            st.success("Beschikbaar · actuele versleutelde Shopify-productcatalogus")
+            st.caption(
+                "De bediening staat onder **Shopify-productcatalogus** op deze pagina."
             )
-        else:
-            try:
-                with st.spinner("Volledige herstelback-up wordt opgebouwd…"):
-                    result = create_server_backup(
-                        backup_password,
-                        progress=lambda message: progress_notice.info(message),
-                    )
-                st.session_state["latest_server_backup"] = result
-                st.success(
-                    f"Back-up voltooid en versleuteld in {DEFAULT_BACKUP_DIR}. "
-                    "Je vindt daar met WinSCP het archief en het SHA-256-bestand."
-                )
-            except Exception as exc:
-                st.error(f"Serverback-up mislukt: {exc}")
-
-    st.markdown("#### Beschikbare serverback-ups")
-    backups = list_server_backups()
-    storage = backup_storage_summary()
-    storage_columns = st.columns(3)
-    storage_columns[0].metric("Aantal back-ups", storage["backup_count"])
-    storage_columns[1].metric(
-        "Ruimte door back-ups",
-        f"{storage['backup_bytes'] / (1024 ** 3):.2f} GB",
-    )
-    storage_columns[2].metric(
-        "Vrije serverruimte",
-        f"{storage['disk_free_bytes'] / (1024 ** 3):.1f} GB",
-        help=(
-            "Vrij op het bestandssysteem van de back-upmap; totale capaciteit: "
-            f"{storage['disk_total_bytes'] / (1024 ** 3):.1f} GB."
-        ),
-    )
-    if not backups:
-        st.info("Er is nog geen volledige serverback-up gemaakt.")
-    else:
-        backup_rows = [{
-            "Bestand": item["name"],
-            "Grootte": f"{item['size'] / (1024 ** 3):.2f} GB",
-            "Aangemaakt (UTC)": item["modified_at"],
-            "SHA-256": item["sha256"],
-        } for item in backups]
-        st.dataframe(backup_rows, hide_index=True, width="stretch", height=220)
-        selected_backup_name = st.selectbox(
-            "Back-up voor controle of download selecteren",
-            [item["name"] for item in backups],
-        )
-        selected_backup = next(
-            item for item in backups if item["name"] == selected_backup_name
-        )
-        st.code(selected_backup["path"], language=None)
-        st.caption(
-            f"WinSCP-servermap: {DEFAULT_BACKUP_DIR}. Download zowel `.enc` als "
-            "`.sha256`."
-        )
-        action_columns = st.columns(2)
-        if action_columns[0].button(
-            "Volledige SHA-256-controle uitvoeren",
-            key=f"verify_backup_{selected_backup_name}", width="stretch",
+        for tab, component_name in zip(
+            shopify_component_tabs[1:], shopify_backup_component_names[1:]
         ):
-            with st.spinner("Het volledige archief wordt opnieuw gelezen…"):
-                verification = verify_server_backup(selected_backup["path"])
-            if verification["valid"]:
-                st.success("SHA-256 klopt: het versleutelde archief is ongewijzigd.")
-            else:
-                st.error("SHA-256 wijkt af. Gebruik dit back-upbestand niet.")
-        checksum_path = Path(selected_backup["checksum_path"])
-        if checksum_path.is_file():
-            action_columns[1].download_button(
-                "SHA-256-bestand downloaden",
-                data=checksum_path.read_bytes(), file_name=checksum_path.name,
-                mime="text/plain", width="stretch",
+            with tab:
+                st.warning("Eigen ingang aangemaakt · back-upmodule wordt nog gebouwd")
+                st.caption(planned_backup_components[component_name])
+                st.button(
+                    f"{component_name} nog niet beschikbaar",
+                    key=f"planned_backup_{component_name}", disabled=True,
+                    width="stretch",
+                )
+    with server_main_tab:
+        st.markdown('<div id="server-backup"></div>', unsafe_allow_html=True)
+        st.markdown("### Serverback-up")
+        st.warning(
+            "Het archief bevat gevoelige gegevens en encryptiesleutels. Gebruik een "
+            "uniek sterk wachtwoord, bewaar dat apart en deel het nooit via e-mail."
+        )
+        st.markdown("#### Nieuwe herstelback-up maken")
+        estimate = cached_server_backup_estimate()
+        estimate_columns = st.columns(2)
+        estimate_columns[0].metric(
+            "Geschatte maximale back-upomvang",
+            f"{estimate['archive_upper_bytes'] / (1024 ** 3):.2f} GB",
+            help=(
+                "Conservatieve bovengrens op basis van de gegevens die nu worden "
+                "meegenomen. Compressie maakt het uiteindelijke bestand meestal kleiner."
+            ),
+        )
+        estimate_columns[1].metric(
+            "Tijdelijk benodigde werkruimte",
+            f"{estimate['temporary_required_bytes'] / (1024 ** 3):.2f} GB",
+            help=(
+                "Tijdens het maken bestaan de werkkopie, het gecomprimeerde archief en "
+                "het versleutelde archief korte tijd naast elkaar."
+            ),
+        )
+        st.info(
+            f"De back-up wordt op de server opgeslagen in `{DEFAULT_BACKUP_DIR}`. "
+            "Daar vind je met WinSCP zowel het `.enc`-bestand als het "
+            "`.sha256`-bestand."
+        )
+        with st.form("encrypted_server_backup", clear_on_submit=True):
+            password_columns = st.columns(2)
+            backup_password = password_columns[0].text_input(
+                "Back-upwachtwoord", type="password",
+                help="Minimaal 12 tekens. Dit wachtwoord wordt niet opgeslagen.",
             )
+            confirm_password = password_columns[1].text_input(
+                "Wachtwoord herhalen", type="password",
+            )
+            backup_confirmed = st.checkbox(
+                "Ik heb het wachtwoord buiten deze server veilig vastgelegd",
+            )
+            create_backup = st.form_submit_button(
+                "Versleutelde serverback-up maken", type="primary",
+                width="stretch",
+            )
+        progress_notice = st.empty()
+        if create_backup:
+            if len(backup_password) < 12:
+                st.error("Gebruik een back-upwachtwoord van minimaal 12 tekens.")
+            elif backup_password != confirm_password:
+                st.error("De twee ingevoerde wachtwoorden zijn niet gelijk.")
+            elif not backup_confirmed:
+                st.error(
+                    "Bevestig eerst dat je het wachtwoord buiten deze server veilig "
+                    "hebt vastgelegd."
+                )
+            else:
+                try:
+                    with st.spinner("Volledige herstelback-up wordt opgebouwd…"):
+                        result = create_server_backup(
+                            backup_password,
+                            progress=lambda message: progress_notice.info(message),
+                        )
+                    st.session_state["latest_server_backup"] = result
+                    st.success(
+                        f"Back-up voltooid en versleuteld in {DEFAULT_BACKUP_DIR}. "
+                        "Je vindt daar met WinSCP het archief en het SHA-256-bestand."
+                    )
+                except Exception as exc:
+                    st.error(f"Serverback-up mislukt: {exc}")
+
+        st.markdown("#### Beschikbare serverback-ups")
+        backups = list_server_backups()
+        storage = backup_storage_summary()
+        storage_columns = st.columns(3)
+        storage_columns[0].metric("Aantal back-ups", storage["backup_count"])
+        storage_columns[1].metric(
+            "Ruimte door back-ups",
+            f"{storage['backup_bytes'] / (1024 ** 3):.2f} GB",
+        )
+        storage_columns[2].metric(
+            "Vrije serverruimte",
+            f"{storage['disk_free_bytes'] / (1024 ** 3):.1f} GB",
+            help=(
+                "Vrij op het bestandssysteem van de back-upmap; totale capaciteit: "
+                f"{storage['disk_total_bytes'] / (1024 ** 3):.1f} GB."
+            ),
+        )
+        if not backups:
+            st.info("Er is nog geen volledige serverback-up gemaakt.")
+        else:
+            backup_rows = [{
+                "Bestand": item["name"],
+                "Grootte": f"{item['size'] / (1024 ** 3):.2f} GB",
+                "Aangemaakt (UTC)": item["modified_at"],
+                "SHA-256": item["sha256"],
+            } for item in backups]
+            st.dataframe(backup_rows, hide_index=True, width="stretch", height=220)
+            selected_backup_name = st.selectbox(
+                "Back-up voor controle of download selecteren",
+                [item["name"] for item in backups],
+            )
+            selected_backup = next(
+                item for item in backups if item["name"] == selected_backup_name
+            )
+            st.code(selected_backup["path"], language=None)
+            st.caption(
+                f"WinSCP-servermap: {DEFAULT_BACKUP_DIR}. Download zowel `.enc` als "
+                "`.sha256`."
+            )
+            action_columns = st.columns(2)
+            if action_columns[0].button(
+                "Volledige SHA-256-controle uitvoeren",
+                key=f"verify_backup_{selected_backup_name}", width="stretch",
+            ):
+                with st.spinner("Het volledige archief wordt opnieuw gelezen…"):
+                    verification = verify_server_backup(selected_backup["path"])
+                if verification["valid"]:
+                    st.success("SHA-256 klopt: het versleutelde archief is ongewijzigd.")
+                else:
+                    st.error("SHA-256 wijkt af. Gebruik dit back-upbestand niet.")
+            checksum_path = Path(selected_backup["checksum_path"])
+            if checksum_path.is_file():
+                action_columns[1].download_button(
+                    "SHA-256-bestand downloaden",
+                    data=checksum_path.read_bytes(), file_name=checksum_path.name,
+                    mime="text/plain", width="stretch",
+                )
+
+
+    with shopify_component_tabs[0]:
+        st.divider()
+        st.markdown('<div id="shopify-productcatalogus"></div>', unsafe_allow_html=True)
+        st.markdown("#### Shopify-productcatalogus")
+        st.caption(
+            "Maakt een actuele, versleutelde momentopname van producten, varianten, "
+            "productmetafields en de originele productmedia. Historisch verwijderde "
+            "producten worden niet meegenomen. Klanten, orders en winkelinrichting "
+            "volgen als afzonderlijke back-upmodules."
+        )
+        st.info(
+            f"De Shopify-catalogusback-up wordt opgeslagen in "
+            f"`{DEFAULT_SHOPIFY_BACKUP_DIR}`. Op basis van de huidige winkel kan deze "
+            "run meerdere gigabytes groot zijn en geruime tijd duren."
+        )
+        with st.form("encrypted_shopify_catalog_backup", clear_on_submit=True):
+            shopify_password_columns = st.columns(2)
+            shopify_backup_password = shopify_password_columns[0].text_input(
+                "Shopify-back-upwachtwoord", type="password",
+                help="Minimaal 12 tekens; dit wachtwoord wordt niet opgeslagen.",
+            )
+            shopify_confirm_password = shopify_password_columns[1].text_input(
+                "Shopify-wachtwoord herhalen", type="password",
+            )
+            shopify_backup_confirmed = st.checkbox(
+                "Ik heb het Shopify-back-upwachtwoord buiten deze server vastgelegd",
+            )
+            create_shopify_backup = st.form_submit_button(
+                "Versleutelde Shopify-catalogusback-up maken", type="primary",
+                width="stretch",
+            )
+        shopify_progress = st.empty()
+        if create_shopify_backup:
+            if len(shopify_backup_password) < 12:
+                st.error("Gebruik een Shopify-back-upwachtwoord van minimaal 12 tekens.")
+            elif shopify_backup_password != shopify_confirm_password:
+                st.error("De twee ingevoerde Shopify-wachtwoorden zijn niet gelijk.")
+            elif not shopify_backup_confirmed:
+                st.error("Bevestig eerst dat het wachtwoord veilig buiten de server staat.")
+            else:
+                try:
+                    with st.spinner("Shopify-catalogusback-up wordt opgebouwd…"):
+                        result = create_shopify_catalog_backup(
+                            shopify_backup_password,
+                            progress=lambda message: shopify_progress.info(message),
+                        )
+                    st.success(
+                        f"Shopify-catalogusback-up voltooid: {result['products']} "
+                        f"producten en {result['media_files']} mediabestanden."
+                    )
+                except Exception as exc:
+                    st.error(f"Shopify-catalogusback-up mislukt: {exc}")
+
+        shopify_backups = list_shopify_catalog_backups()
+        if not shopify_backups:
+            st.info("Er is nog geen Shopify-catalogusback-up gemaakt.")
+        else:
+            st.dataframe(
+                [{"Bestand": item["name"],
+                  "Grootte": f"{item['size'] / (1024 ** 3):.2f} GB",
+                  "SHA-256": item["sha256"]} for item in shopify_backups],
+                hide_index=True, width="stretch",
+            )
+            selected_shopify_name = st.selectbox(
+                "Shopify-back-up voor controle selecteren",
+                [item["name"] for item in shopify_backups],
+            )
+            selected_shopify_backup = next(
+                item for item in shopify_backups
+                if item["name"] == selected_shopify_name
+            )
+            shopify_action_columns = st.columns(2)
+            if shopify_action_columns[0].button(
+                "Shopify SHA-256-controle uitvoeren",
+                key=f"verify_shopify_{selected_shopify_name}", width="stretch",
+            ):
+                with st.spinner("Het volledige Shopify-archief wordt gelezen…"):
+                    verification = verify_shopify_catalog_backup(
+                        selected_shopify_backup["path"]
+                    )
+                if verification["valid"]:
+                    st.success("SHA-256 klopt: de Shopify-back-up is ongewijzigd.")
+                else:
+                    st.error("SHA-256 wijkt af. Gebruik deze Shopify-back-up niet.")
+            shopify_checksum = Path(selected_shopify_backup["checksum_path"])
+            if shopify_checksum.is_file():
+                shopify_action_columns[1].download_button(
+                    "Shopify SHA-256-bestand downloaden",
+                    data=shopify_checksum.read_bytes(), file_name=shopify_checksum.name,
+                    mime="text/plain", width="stretch",
+                )
+
     st.stop()
 
 st.title("Leverancierssynchronisatie")
