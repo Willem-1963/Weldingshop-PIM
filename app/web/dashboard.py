@@ -49,6 +49,12 @@ from app.suppliers.hub import (
     supplier_stats,
     supplier_database_cleanup_preview,
 )
+from app.server_backup import (
+    DEFAULT_BACKUP_DIR,
+    create_server_backup,
+    list_server_backups,
+    verify_server_backup,
+)
 from app.shopify.client import (
     DEFAULT_API_VERSION,
     get_metafield_definitions,
@@ -1869,13 +1875,13 @@ if main_section == "Voorblad":
             """
             <div class="pim-card"><div class="pim-card-icon">🛡️</div>
             <h3>Back-ups</h3>
-            <p>Een toekomstige veilige plek voor product-, order- en
-            configuratieback-ups met herstelcontroles.</p></div>
+            <p>Maak een versleutelde serverback-up van PIM, ERP, productdata,
+            configuratie en secrets met herstelcontroles.</p></div>
             """,
             unsafe_allow_html=True,
         )
         st.button(
-            "Bekijk back-upplan",
+            "Open veilige back-ups",
             width="stretch",
             on_click=lambda: st.session_state.update(pim_main_section="Back-ups"),
         )
@@ -1900,36 +1906,94 @@ if main_section == "Labels":
     st.stop()
 
 if main_section == "Back-ups":
-    st.title("Back-ups")
+    st.title("Veilige serverback-up")
     st.caption(
-        "Voorbereide sectie voor herstelbare snapshots en controleerbare exports."
+        "Maak één versleuteld herstelarchief van PIM, ERP, databases, bestanden, "
+        "configuratie, secrets en serverinstellingen."
     )
-    order_col, product_col, config_col = st.columns(3)
-    with order_col:
-        st.markdown(
-            "<div class='pim-card'><div class='pim-card-icon'>🧾</div>"
-            "<h3>Orders</h3><p>Periodieke orderexports, terugbetalingen en "
-            "bundelrelaties veilig bewaren.</p></div>",
-            unsafe_allow_html=True,
-        )
-    with product_col:
-        st.markdown(
-            "<div class='pim-card'><div class='pim-card-icon'>📦</div>"
-            "<h3>Producten</h3><p>Producten, varianten, media, metafields en "
-            "native bundels als herstelbare snapshot.</p></div>",
-            unsafe_allow_html=True,
-        )
-    with config_col:
-        st.markdown(
-            "<div class='pim-card'><div class='pim-card-icon'>⚙️</div>"
-            "<h3>Configuratie</h3><p>PIM-instellingen, leverancierkoppelingen "
-            "en publicatieregels versioneren.</p></div>",
-            unsafe_allow_html=True,
-        )
     st.warning(
-        "Dit is voorlopig een ontwerpsectie. Er worden nog geen automatische "
-        "back-ups gestart of verwijderd."
+        "Het archief bevat gevoelige gegevens en encryptiesleutels. Gebruik een "
+        "uniek sterk wachtwoord, bewaar dat apart en deel het nooit via e-mail."
     )
+    st.markdown("#### Nieuwe herstelback-up maken")
+    with st.form("encrypted_server_backup", clear_on_submit=True):
+        password_columns = st.columns(2)
+        backup_password = password_columns[0].text_input(
+            "Back-upwachtwoord", type="password",
+            help="Minimaal 12 tekens. Dit wachtwoord wordt niet opgeslagen.",
+        )
+        confirm_password = password_columns[1].text_input(
+            "Wachtwoord herhalen", type="password",
+        )
+        backup_confirmed = st.checkbox(
+            "Ik heb het wachtwoord buiten deze server veilig vastgelegd",
+        )
+        password_valid = (
+            len(backup_password) >= 12
+            and backup_password == confirm_password
+            and backup_confirmed
+        )
+        create_backup = st.form_submit_button(
+            "Versleutelde serverback-up maken", type="primary",
+            width="stretch", disabled=not password_valid,
+        )
+    progress_notice = st.empty()
+    if create_backup:
+        try:
+            with st.spinner("Volledige herstelback-up wordt opgebouwd…"):
+                result = create_server_backup(
+                    backup_password,
+                    progress=lambda message: progress_notice.info(message),
+                )
+            st.session_state["latest_server_backup"] = result
+            st.success(
+                "Back-up voltooid en versleuteld. Kopieer het archief en het "
+                "SHA-256-bestand nu met WinSCP naar je pc."
+            )
+        except Exception as exc:
+            st.error(f"Serverback-up mislukt: {exc}")
+
+    st.markdown("#### Beschikbare serverback-ups")
+    backups = list_server_backups()
+    if not backups:
+        st.info("Er is nog geen volledige serverback-up gemaakt.")
+    else:
+        backup_rows = [{
+            "Bestand": item["name"],
+            "Grootte": f"{item['size'] / (1024 ** 3):.2f} GB",
+            "Aangemaakt (UTC)": item["modified_at"],
+            "SHA-256": item["sha256"],
+        } for item in backups]
+        st.dataframe(backup_rows, hide_index=True, width="stretch", height=220)
+        selected_backup_name = st.selectbox(
+            "Back-up voor controle of download selecteren",
+            [item["name"] for item in backups],
+        )
+        selected_backup = next(
+            item for item in backups if item["name"] == selected_backup_name
+        )
+        st.code(selected_backup["path"], language=None)
+        st.caption(
+            f"WinSCP-map: {DEFAULT_BACKUP_DIR}. Download zowel `.enc` als `.sha256`."
+        )
+        action_columns = st.columns(2)
+        if action_columns[0].button(
+            "Volledige SHA-256-controle uitvoeren",
+            key=f"verify_backup_{selected_backup_name}", width="stretch",
+        ):
+            with st.spinner("Het volledige archief wordt opnieuw gelezen…"):
+                verification = verify_server_backup(selected_backup["path"])
+            if verification["valid"]:
+                st.success("SHA-256 klopt: het versleutelde archief is ongewijzigd.")
+            else:
+                st.error("SHA-256 wijkt af. Gebruik dit back-upbestand niet.")
+        checksum_path = Path(selected_backup["checksum_path"])
+        if checksum_path.is_file():
+            action_columns[1].download_button(
+                "SHA-256-bestand downloaden",
+                data=checksum_path.read_bytes(), file_name=checksum_path.name,
+                mime="text/plain", width="stretch",
+            )
     st.stop()
 
 st.title("Leverancierssynchronisatie")
