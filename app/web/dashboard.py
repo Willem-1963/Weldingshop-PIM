@@ -49,6 +49,10 @@ from app.suppliers.hub import (
     supplier_stats,
     supplier_database_cleanup_preview,
 )
+from app.suppliers.invoice_catalog import (
+    invoice_evidence_counts,
+    list_product_invoice_evidence,
+)
 from app.server_backup import (
     DEFAULT_BACKUP_DIR,
     backup_storage_summary,
@@ -60,7 +64,10 @@ from app.server_backup import (
 from app.shopify_backup import (
     DEFAULT_SHOPIFY_BACKUP_DIR,
     create_shopify_catalog_backup,
+    get_product_from_shopify_backup,
     list_shopify_catalog_backups,
+    list_products_in_shopify_backup,
+    restore_product_from_shopify_backup,
     verify_shopify_catalog_backup,
 )
 from app.shopify.client import (
@@ -2165,7 +2172,7 @@ if main_section == "Back-ups":
                 [{"Bestand": item["name"],
                   "Grootte": f"{item['size'] / (1024 ** 3):.2f} GB",
                   "SHA-256": item["sha256"]} for item in shopify_backups],
-                hide_index=True, width="stretch",
+                hide_index=True, width="stretch", height=220,
             )
             selected_shopify_name = st.selectbox(
                 "Shopify-back-up voor controle selecteren",
@@ -2195,6 +2202,195 @@ if main_section == "Back-ups":
                     data=shopify_checksum.read_bytes(), file_name=shopify_checksum.name,
                     mime="text/plain", width="stretch",
                 )
+
+            with st.expander("Eén product uit deze back-up terugzetten"):
+                st.warning(
+                    "Het product wordt als een nieuw concept aangemaakt. Het bestaande "
+                    "Shopify-product en de huidige voorraad worden niet gewijzigd."
+                )
+                restore_password = st.text_input(
+                    "Back-upwachtwoord voor herstel", type="password",
+                    key=f"restore_password_{selected_shopify_name}",
+                )
+                restore_state_key = f"restore_products_{selected_shopify_name}"
+                if st.button(
+                    "Producten in back-up laden",
+                    key=f"load_restore_products_{selected_shopify_name}",
+                    width="stretch",
+                ):
+                    try:
+                        with st.spinner("Back-up ontsleutelen en producten lezen…"):
+                            st.session_state[restore_state_key] = (
+                                list_products_in_shopify_backup(
+                                    selected_shopify_backup["path"], restore_password
+                                )
+                            )
+                    except Exception as exc:
+                        st.session_state.pop(restore_state_key, None)
+                        st.error(f"Back-up openen mislukt: {exc}")
+                restore_products = st.session_state.get(restore_state_key) or []
+                if restore_products:
+                    restore_query = st.text_input(
+                        "Zoeken op titel, SKU, leverancier of handle",
+                        key=f"restore_query_{selected_shopify_name}",
+                    ).strip().casefold()
+                    filtered = [
+                        item for item in restore_products
+                        if not restore_query or restore_query in " ".join([
+                            item["title"], item["vendor"], item["handle"],
+                            *item["skus"],
+                        ]).casefold()
+                    ]
+                    if not filtered:
+                        st.info("Geen producten gevonden met deze zoekterm.")
+                    else:
+                        labels = {
+                            item["id"]: (
+                                f"{item['title']} — {', '.join(item['skus'][:3]) or 'geen SKU'}"
+                            ) for item in filtered
+                        }
+                        restore_product_id = st.selectbox(
+                            "Product selecteren", [item["id"] for item in filtered],
+                            format_func=lambda value: labels[value],
+                            key=f"restore_product_{selected_shopify_name}",
+                        )
+                        preview = next(
+                            item for item in filtered if item["id"] == restore_product_id
+                        )
+                        viewer_key = (
+                            f"restore_viewer_{selected_shopify_name}_{restore_product_id}"
+                        )
+                        if st.button(
+                            "Geselecteerd product bekijken",
+                            key=f"open_{viewer_key}", width="stretch",
+                        ):
+                            try:
+                                with st.spinner("Productdetails uit back-up laden…"):
+                                    st.session_state[viewer_key] = (
+                                        get_product_from_shopify_backup(
+                                            selected_shopify_backup["path"], restore_password,
+                                            restore_product_id,
+                                        )
+                                    )
+                            except Exception as exc:
+                                st.session_state.pop(viewer_key, None)
+                                st.error(f"Productviewer openen mislukt: {exc}")
+                        viewed_product = st.session_state.get(viewer_key)
+                        if viewed_product:
+                            st.markdown(f"### {viewed_product.get('title') or 'Zonder titel'}")
+                            viewer_metrics = st.columns(4)
+                            viewer_metrics[0].metric(
+                                "Status", viewed_product.get("status") or "Onbekend"
+                            )
+                            viewer_metrics[1].metric(
+                                "Leverancier", viewed_product.get("vendor") or "—"
+                            )
+                            viewer_metrics[2].metric(
+                                "Varianten", len(viewed_product.get("variants") or [])
+                            )
+                            viewer_metrics[3].metric(
+                                "Media", len(viewed_product.get("media") or [])
+                            )
+                            product_tabs = st.tabs([
+                                "Product", "Afbeeldingen", "Varianten", "Metafields", "Technisch",
+                            ])
+                            with product_tabs[0]:
+                                st.caption(
+                                    f"Handle: {viewed_product.get('handle') or '—'} · "
+                                    f"Producttype: {viewed_product.get('productType') or '—'}"
+                                )
+                                tags = viewed_product.get("tags") or []
+                                if tags:
+                                    st.write("Tags: " + ", ".join(tags))
+                                description = viewed_product.get("descriptionHtml") or ""
+                                if description:
+                                    st.markdown(description, unsafe_allow_html=True)
+                                else:
+                                    st.info("Dit product heeft geen beschrijving in de back-up.")
+                                seo = viewed_product.get("seo") or {}
+                                if seo.get("title") or seo.get("description"):
+                                    st.markdown("##### SEO")
+                                    st.write(seo.get("title") or "—")
+                                    st.caption(seo.get("description") or "Geen SEO-beschrijving")
+                            with product_tabs[1]:
+                                images = [
+                                    media for media in viewed_product.get("media") or []
+                                    if media.get("mediaContentType") == "IMAGE"
+                                    and (media.get("image") or {}).get("url")
+                                ]
+                                if not images:
+                                    st.info("Geen afbeeldingen gevonden in deze productback-up.")
+                                else:
+                                    for start in range(0, len(images), 3):
+                                        columns = st.columns(3)
+                                        for column, media in zip(columns, images[start:start + 3]):
+                                            column.image(
+                                                media["image"]["url"],
+                                                caption=media.get("alt") or "Productafbeelding",
+                                                width="stretch",
+                                            )
+                            with product_tabs[2]:
+                                variants = viewed_product.get("variants") or []
+                                if variants:
+                                    st.dataframe([{
+                                        "SKU": item.get("sku") or "",
+                                        "Variant": item.get("title") or "",
+                                        "Barcode": item.get("barcode") or "",
+                                        "Prijs": item.get("price") or "",
+                                        "Van-prijs": item.get("compareAtPrice") or "",
+                                        "Voorraad back-up": item.get("inventoryQuantity"),
+                                        "Opties": ", ".join(
+                                            f"{value.get('name')}: {value.get('value')}"
+                                            for value in item.get("selectedOptions") or []
+                                        ),
+                                    } for item in variants], hide_index=True,
+                                        width="stretch", height=260)
+                                else:
+                                    st.info("Geen varianten gevonden.")
+                            with product_tabs[3]:
+                                metafields = viewed_product.get("metafields") or []
+                                if metafields:
+                                    st.dataframe([{
+                                        "Namespace": item.get("namespace") or "",
+                                        "Sleutel": item.get("key") or "",
+                                        "Type": item.get("type") or "",
+                                        "Waarde": item.get("value") or "",
+                                    } for item in metafields], hide_index=True,
+                                        width="stretch", height=260)
+                                else:
+                                    st.info("Geen metafields gevonden.")
+                            with product_tabs[4]:
+                                st.code(viewed_product.get("id") or "", language=None)
+                                st.json({
+                                    "createdAt": viewed_product.get("createdAt"),
+                                    "updatedAt": viewed_product.get("updatedAt"),
+                                    "publishedAt": viewed_product.get("publishedAt"),
+                                    "templateSuffix": viewed_product.get("templateSuffix"),
+                                    "options": viewed_product.get("options") or [],
+                                })
+                        restore_confirmed = st.checkbox(
+                            "Ik begrijp dat dit een nieuw Shopify-concept aanmaakt",
+                            key=f"restore_confirm_{selected_shopify_name}_{restore_product_id}",
+                        )
+                        if st.button(
+                            "Geselecteerd product als concept terugzetten",
+                            type="primary", disabled=not restore_confirmed,
+                            key=f"restore_submit_{selected_shopify_name}_{restore_product_id}",
+                            width="stretch",
+                        ):
+                            try:
+                                with st.spinner("Product en afbeeldingen worden hersteld…"):
+                                    restored = restore_product_from_shopify_backup(
+                                        selected_shopify_backup["path"], restore_password,
+                                        restore_product_id,
+                                    )
+                                st.success(
+                                    f"{restored['title']} is als Shopify-concept hersteld "
+                                    f"met {restored['variants']} varianten en "
+                                    f"{restored['images']} afbeeldingen."
+                                )
+                            except Exception as exc:
+                                st.error(f"Product herstellen mislukt: {exc}")
 
     st.stop()
 
@@ -2654,9 +2850,15 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
     price_columns[0].metric("Inkoopprijs", euro(product.get("price")))
     price_columns[1].metric("Verkoopprijs", euro(product.get("sale_price")))
     price_columns[2].metric("Kostprijs", euro(product.get("cost_price")))
-    details_tab, source_data_tab, images_tab = st.tabs(
-        ["Productgegevens", "Brondata", "Afbeeldingen"]
+    invoice_history = (
+        list_product_invoice_evidence(supplier_slug, sku)
+        if supplier_slug == "valkenpower" else []
     )
+    tabs = st.tabs(
+        ["Productgegevens", "Brondata", "Afbeeldingen"]
+        + ([f"Inkoopfacturen ({len(invoice_history)})"] if supplier_slug == "valkenpower" else [])
+    )
+    details_tab, source_data_tab, images_tab = tabs[:3]
     with details_tab:
         excluded_fields = {"images", "raw_data", "raw_data_json"}
         product_fields = [
@@ -2706,6 +2908,37 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
                 st.caption(image["image_url"])
         else:
             st.info("Voor dit product zijn geen afbeeldingen opgeslagen.")
+    if supplier_slug == "valkenpower":
+        with tabs[3]:
+            if not invoice_history:
+                st.info("Voor dit product zijn nog geen inkoopfacturen gekoppeld.")
+            else:
+                st.caption("Nieuwste factuur bovenaan · alleen intern zichtbaar")
+                with st.container(height=430, border=True):
+                    for invoice in invoice_history:
+                        with st.container(border=True):
+                            st.markdown(
+                                f"**Factuur {invoice['invoice_number']}** · "
+                                f"{invoice.get('invoice_date') or 'datum onbekend'}"
+                            )
+                            st.caption(
+                                f"Regel {invoice['line_number']} · "
+                                f"leveranciersartikel {invoice['supplier_article_number']} · "
+                                f"aantal {invoice.get('quantity') or '—'} · "
+                                f"inkoop {euro(invoice.get('net_unit_price'))}"
+                            )
+                            actions = st.columns(2)
+                            if invoice.get("erp_url"):
+                                actions[0].link_button(
+                                    "Originele PDF", invoice["pdf_url"],
+                                    width="stretch",
+                                )
+                                actions[1].link_button(
+                                    "Open factuur", invoice["erp_url"],
+                                    width="stretch",
+                                )
+                            else:
+                                actions[0].caption("ERP-koppeling ontbreekt")
 
 
 def safe_description(value: str) -> str:
@@ -7312,9 +7545,20 @@ with products_tab:
     if products_search.strip():
         st.caption(f"{len(products)} product(en) gevonden voor ‘{products_search.strip()}’.")
     if products:
+        invoice_counts = (
+            invoice_evidence_counts(
+                selected_slug, [str(product.get("sku") or "") for product in products]
+            )
+            if selected_slug == "valkenpower" else {}
+        )
         products_display = [
             {
                 **product,
+                **({
+                    "invoice_count": invoice_counts.get(
+                        str(product.get("sku") or "").casefold(), 0
+                    )
+                } if selected_slug == "valkenpower" else {}),
                 "display_title": (
                     (
                         product.get("ai_title")
@@ -7346,7 +7590,7 @@ with products_tab:
                 f"{st.session_state.get(f'products_table_revision_{selected_slug}', 0)}"
             ),
             column_order=[
-                "sku", "product_group_name", "display_title", "execution",
+                "sku", "invoice_count", "product_group_name", "display_title", "execution",
                 "filter", "ean", "price", "sale_price", "stock_quantity",
                 "purchase_unit", "sales_unit",
                 "purchase_units_per_sales_unit", "unit_calculation_mode",
@@ -7358,6 +7602,9 @@ with products_tab:
             ],
             column_config={
                 "sku": "SKU",
+                "invoice_count": st.column_config.NumberColumn(
+                    "Facturen", help="Selecteer de productregel en open Inkoopfacturen."
+                ),
                 "display_title": "Productnaam",
                 "product_group_name": "1. Productgroep - naam",
                 "execution": "2. Uitvoering",

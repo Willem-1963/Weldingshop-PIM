@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import os
 import subprocess
 import tarfile
@@ -269,3 +270,172 @@ def verify_shopify_catalog_backup(
     expected = checksum.read_text(encoding="utf-8").split()[0]
     actual = _sha256(archive)
     return {"valid": expected == actual, "expected": expected, "actual": actual}
+
+
+def _extract_catalog_backup(path: str | Path, password: str, target: Path) -> Path:
+    """Decrypt and safely extract a catalog archive into *target*."""
+    archive = Path(path).resolve()
+    if archive.parent != DEFAULT_SHOPIFY_BACKUP_DIR.resolve() or not archive.is_file():
+        raise ValueError("Onbekend Shopify-back-upbestand")
+    if not verify_shopify_catalog_backup(archive)["valid"]:
+        raise ValueError("SHA-256-controle van de Shopify-back-up is mislukt")
+    plaintext = target / "catalog.tar.gz"
+    result = subprocess.run(
+        ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "250000",
+         "-md", "sha256", "-pass", "stdin", "-in", str(archive), "-out", str(plaintext)],
+        input=password + "\n", text=True, capture_output=True,
+    )
+    if result.returncode:
+        raise ValueError("Back-up kon niet worden geopend; controleer het wachtwoord")
+    try:
+        with tarfile.open(plaintext, "r:gz") as bundle:
+            bundle.extractall(target, filter="data")
+    except (tarfile.TarError, OSError) as exc:
+        raise ValueError("Back-upbestand is beschadigd of heeft een ongeldig formaat") from exc
+    finally:
+        plaintext.unlink(missing_ok=True)
+    roots = [item for item in target.iterdir() if item.is_dir()]
+    if len(roots) != 1 or not (roots[0] / "products.jsonl").is_file():
+        raise ValueError("products.jsonl ontbreekt in de Shopify-back-up")
+    return roots[0]
+
+
+def _catalog_products(jsonl_path: Path) -> list[dict[str, Any]]:
+    products: dict[str, dict[str, Any]] = {}
+    children: list[dict[str, Any]] = []
+    with jsonl_path.open(encoding="utf-8") as source:
+        for line in source:
+            item = json.loads(line)
+            item_id = str(item.get("id") or "")
+            if item_id.startswith("gid://shopify/Product/"):
+                products[item_id] = {**item, "variants": [], "media": [], "metafields": []}
+            elif item.get("__parentId"):
+                children.append(item)
+    for item in children:
+        product = products.get(str(item.get("__parentId") or ""))
+        if not product:
+            continue
+        item_id = str(item.get("id") or "")
+        if item_id.startswith("gid://shopify/ProductVariant/"):
+            product["variants"].append(item)
+        elif item_id.startswith("gid://shopify/Metafield/"):
+            product["metafields"].append(item)
+        elif item.get("mediaContentType"):
+            product["media"].append(item)
+    return sorted(products.values(), key=lambda item: str(item.get("title") or "").casefold())
+
+
+def list_products_in_shopify_backup(path: str | Path, password: str) -> list[dict[str, Any]]:
+    """Return compact product summaries from an encrypted catalog backup."""
+    with tempfile.TemporaryDirectory(prefix="shopify-backup-read-") as temporary:
+        root = _extract_catalog_backup(path, password, Path(temporary))
+        return [{
+            "id": item["id"], "title": item.get("title") or "Zonder titel",
+            "handle": item.get("handle") or "", "vendor": item.get("vendor") or "",
+            "status": item.get("status") or "", "variant_count": len(item["variants"]),
+            "skus": [str(v.get("sku") or "") for v in item["variants"] if v.get("sku")],
+            "media_count": len(item["media"]),
+        } for item in _catalog_products(root / "products.jsonl")]
+
+
+def get_product_from_shopify_backup(
+    path: str | Path, password: str, product_id: str,
+) -> dict[str, Any]:
+    """Return one complete product snapshot for the read-only backup viewer."""
+    with tempfile.TemporaryDirectory(prefix="shopify-backup-product-") as temporary:
+        root = _extract_catalog_backup(path, password, Path(temporary))
+        product = next(
+            (item for item in _catalog_products(root / "products.jsonl")
+             if item["id"] == product_id), None,
+        )
+        if not product:
+            raise ValueError("Geselecteerd product staat niet in deze back-up")
+        return product
+
+
+def _stage_backup_image(client: ShopifyClient, path: Path) -> str:
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    payload = client.graphql(
+        """mutation($input:[StagedUploadInput!]!){stagedUploadsCreate(input:$input){
+        stagedTargets{url resourceUrl parameters{name value}} userErrors{field message}}}""",
+        {"input": [{"resource": "IMAGE", "filename": path.name,
+                    "mimeType": mime_type, "httpMethod": "POST",
+                    "fileSize": str(path.stat().st_size)}]},
+    )["stagedUploadsCreate"]
+    if payload.get("userErrors"):
+        raise RuntimeError("Shopify media-upload: " + json.dumps(payload["userErrors"], ensure_ascii=False))
+    target = payload["stagedTargets"][0]
+    fields = {item["name"]: item["value"] for item in target["parameters"]}
+    with path.open("rb") as media:
+        response = requests.post(target["url"], data=fields,
+                                 files={"file": (path.name, media, mime_type)}, timeout=180)
+    response.raise_for_status()
+    return str(target["resourceUrl"])
+
+
+def restore_product_from_shopify_backup(
+    path: str | Path, password: str, product_id: str,
+    *, client: ShopifyClient | None = None,
+) -> dict[str, Any]:
+    """Restore one backed-up product as a new Shopify draft, excluding inventory."""
+    client = client or ShopifyClient.from_settings()
+    with tempfile.TemporaryDirectory(prefix="shopify-product-restore-") as temporary:
+        root = _extract_catalog_backup(path, password, Path(temporary))
+        product = next(
+            (item for item in _catalog_products(root / "products.jsonl")
+             if item["id"] == product_id), None,
+        )
+        if not product:
+            raise ValueError("Geselecteerd product staat niet in deze back-up")
+        media_index = {
+            item["url"]: root / item["path"]
+            for item in json.loads((root / "MEDIA.json").read_text(encoding="utf-8"))
+        }
+        files = []
+        for media in product["media"]:
+            image_url = str((media.get("image") or {}).get("url") or "")
+            local = media_index.get(image_url)
+            if media.get("mediaContentType") == "IMAGE" and local and local.is_file():
+                files.append({"originalSource": _stage_backup_image(client, local),
+                              "contentType": "IMAGE", "alt": media.get("alt") or ""})
+        options = [{"name": option["name"], "position": option.get("position"),
+                    "values": [{"name": value["name"]}
+                               for value in option.get("optionValues") or []]}
+                   for option in product.get("options") or []]
+        variants = []
+        for variant in product["variants"]:
+            restored = {key: variant[key] for key in (
+                "sku", "barcode", "price", "compareAtPrice", "taxable", "inventoryPolicy"
+            ) if variant.get(key) is not None}
+            restored["optionValues"] = [
+                {"optionName": value["name"], "name": value["value"]}
+                for value in variant.get("selectedOptions") or []
+            ]
+            inventory = variant.get("inventoryItem") or {}
+            restored["inventoryItem"] = {
+                key: inventory[key] for key in ("tracked", "requiresShipping")
+                if inventory.get(key) is not None
+            }
+            variants.append(restored)
+        input_data: dict[str, Any] = {
+            "title": product.get("title") or "Hersteld product",
+            "descriptionHtml": product.get("descriptionHtml") or "",
+            "vendor": product.get("vendor") or "", "productType": product.get("productType") or "",
+            "tags": product.get("tags") or [], "status": "DRAFT", "productOptions": options,
+            "variants": variants, "files": files,
+            "metafields": [{key: field[key] for key in ("namespace", "key", "type", "value")}
+                           for field in product["metafields"]],
+        }
+        if product.get("seo"):
+            input_data["seo"] = product["seo"]
+        payload = client.graphql(
+            """mutation($input:ProductSetInput!){productSet(synchronous:true,input:$input){
+            product{id title handle status} userErrors{code field message}}}""",
+            {"input": input_data},
+        ).get("productSet") or {}
+        if payload.get("userErrors"):
+            raise RuntimeError("Shopify herstel: " + json.dumps(payload["userErrors"], ensure_ascii=False))
+        restored = payload.get("product") or {}
+        if not restored.get("id"):
+            raise RuntimeError("Shopify gaf geen hersteld product terug")
+        return {**restored, "variants": len(variants), "images": len(files)}

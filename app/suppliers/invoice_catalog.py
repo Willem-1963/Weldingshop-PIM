@@ -1,13 +1,80 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from app.suppliers.hub import _connect, init_supplier_database, utc_now
 
 
+ERP_BASE_URL = os.environ.get("WELDINGSHOP_ERP_BASE_URL", "https://erp.weldingshop.nl").rstrip("/")
+
+
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def invoice_evidence_counts(slug: str, skus: list[str]) -> dict[str, int]:
+    """Aantal unieke inkoopfacturen voor de zichtbare productregels."""
+    if not skus:
+        return {}
+    path = init_supplier_database(slug)
+    with _connect(path) as conn:
+        exists = conn.execute(
+            """SELECT 1 FROM sqlite_master WHERE type='table'
+               AND name='supplier_invoice_product_evidence'"""
+        ).fetchone()
+        if not exists:
+            return {}
+        placeholders = ",".join("?" for _ in skus)
+        rows = conn.execute(
+            f"""SELECT sku,COUNT(DISTINCT invoice_number) invoice_count
+                FROM supplier_invoice_product_evidence
+                WHERE sku IN ({placeholders}) COLLATE NOCASE GROUP BY sku""",
+            tuple(skus),
+        ).fetchall()
+    return {str(row["sku"]).casefold(): int(row["invoice_count"]) for row in rows}
+
+
+def list_product_invoice_evidence(slug: str, sku: str) -> list[dict[str, Any]]:
+    """Factuurhistorie voor een PIM-product, nieuwste factuur eerst."""
+    path = init_supplier_database(slug)
+    with _connect(path) as conn:
+        exists = conn.execute(
+            """SELECT 1 FROM sqlite_master WHERE type='table'
+               AND name='supplier_invoice_product_evidence'"""
+        ).fetchone()
+        if not exists:
+            return []
+        rows = conn.execute(
+            """SELECT invoice_number,invoice_date,line_number,quantity,
+                      net_unit_price,currency,supplier_article_number,
+                      evidence_json,recorded_at
+               FROM supplier_invoice_product_evidence
+               WHERE sku=? COLLATE NOCASE
+               ORDER BY invoice_date DESC,recorded_at DESC,line_number DESC""",
+            (sku,),
+        ).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        try:
+            evidence = json.loads(item.pop("evidence_json") or "{}")
+        except json.JSONDecodeError:
+            evidence = {}
+        invoice = evidence.get("invoice") or {}
+        intake_id = int(invoice.get("erp_intake_id") or invoice.get("intake_id") or 0)
+        item["intake_id"] = intake_id
+        item["erp_url"] = (
+            f"{ERP_BASE_URL}/purchase-invoice-inbox/{intake_id}"
+            if intake_id else ""
+        )
+        item["pdf_url"] = (
+            f"{ERP_BASE_URL}/purchase-invoice-inbox/{intake_id}/original-pdf"
+            if intake_id else ""
+        )
+        result.append(item)
+    return result
 
 
 def persist_linked_invoice_product(
