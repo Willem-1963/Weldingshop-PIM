@@ -53,6 +53,7 @@ from app.server_backup import (
     DEFAULT_BACKUP_DIR,
     backup_storage_summary,
     create_server_backup,
+    estimate_server_backup_size,
     list_server_backups,
     verify_server_backup,
 )
@@ -360,6 +361,11 @@ def cached_shopify_locations() -> list[dict]:
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_shopify_collections() -> list[dict]:
     return get_shopify_collections()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_server_backup_estimate() -> dict[str, int]:
+    return estimate_server_backup_size()
 
 
 def infer_processing_type(config: dict) -> str:
@@ -1917,6 +1923,28 @@ if main_section == "Back-ups":
         "uniek sterk wachtwoord, bewaar dat apart en deel het nooit via e-mail."
     )
     st.markdown("#### Nieuwe herstelback-up maken")
+    estimate = cached_server_backup_estimate()
+    estimate_columns = st.columns(2)
+    estimate_columns[0].metric(
+        "Geschatte maximale back-upomvang",
+        f"{estimate['archive_upper_bytes'] / (1024 ** 3):.2f} GB",
+        help=(
+            "Conservatieve bovengrens op basis van de gegevens die nu worden "
+            "meegenomen. Compressie maakt het uiteindelijke bestand meestal kleiner."
+        ),
+    )
+    estimate_columns[1].metric(
+        "Tijdelijk benodigde werkruimte",
+        f"{estimate['temporary_required_bytes'] / (1024 ** 3):.2f} GB",
+        help=(
+            "Tijdens het maken bestaan de werkkopie, het gecomprimeerde archief en "
+            "het versleutelde archief korte tijd naast elkaar."
+        ),
+    )
+    st.info(
+        "De back-up blijft na het maken op de server staan. Download daarna het "
+        "`.enc`-bestand én het `.sha256`-bestand met WinSCP naar je pc."
+    )
     with st.form("encrypted_server_backup", clear_on_submit=True):
         password_columns = st.columns(2)
         backup_password = password_columns[0].text_input(

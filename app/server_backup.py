@@ -17,6 +17,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BACKUP_DIR = Path("/root/weldingshop-backups")
 ERP_SOURCE_ROOT = Path("/root/weldingshop-erp")
 ERP_ACTIVE_ROOT = Path("/opt/weldingshop-erp/current")
+IGNORED_BACKUP_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache"}
+IGNORED_BACKUP_SUFFIXES = {
+    ".pyc", ".sqlite", ".sqlite3", ".sqlite-wal", ".sqlite-shm", ".log",
+}
 
 
 def _sha256(path: Path) -> str:
@@ -59,6 +63,77 @@ def _copy_tree(source: Path, target: Path) -> None:
             "*.log", "weldingshop-backups",
         ),
     )
+
+
+def _included_tree_size(source: Path) -> int:
+    """Measure files that _copy_tree would include, without reading their contents."""
+    if not source.exists():
+        return 0
+    total = 0
+    for path in source.rglob("*"):
+        try:
+            relative_parts = path.relative_to(source).parts
+            if any(part in IGNORED_BACKUP_NAMES for part in relative_parts):
+                continue
+            if path.is_file() and not path.is_symlink():
+                if path.name == "weldingshop-backups":
+                    continue
+                if any(path.name.endswith(suffix) for suffix in IGNORED_BACKUP_SUFFIXES):
+                    continue
+                total += path.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _repository_bundle_estimate(repository: Path) -> int:
+    git_dir = repository / ".git"
+    if not git_dir.exists():
+        return 0
+    return sum(
+        path.stat().st_size
+        for path in git_dir.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    )
+
+
+def estimate_server_backup_size(
+    *, pim_root: str | Path = PROJECT_ROOT,
+    erp_source_root: str | Path = ERP_SOURCE_ROOT,
+    erp_active_root: str | Path = ERP_ACTIVE_ROOT,
+    include_server_config: bool = True,
+) -> dict[str, int]:
+    """Estimate archive and temporary workspace sizes from current source files."""
+    pim = Path(pim_root).resolve()
+    erp_source = Path(erp_source_root).resolve()
+    erp_active = Path(erp_active_root).resolve()
+    source_bytes = sum(path.stat().st_size for path in _active_pim_databases(pim))
+    erp_database = erp_active / "data" / "weldingshop_erp.sqlite3"
+    if erp_database.is_file():
+        source_bytes += erp_database.stat().st_size
+    source_bytes += _repository_bundle_estimate(pim)
+    source_bytes += _repository_bundle_estimate(erp_source)
+    for directory in (pim / "app", pim / "scripts", pim / "config"):
+        source_bytes += _included_tree_size(directory)
+    for name in ("audit", "blog_assets", "content", "imports", "output", "product_maker_uploads"):
+        source_bytes += _included_tree_size(pim / "data" / name)
+    source_bytes += _included_tree_size(erp_active / "data")
+    for filename in (".env", "VERSION", "BUILD", "BUILD.txt"):
+        path = erp_active / filename
+        if path.is_file():
+            source_bytes += path.stat().st_size
+    if include_server_config:
+        for path in (Path("/etc/systemd/system"), Path("/etc/nginx"), Path("/etc/letsencrypt")):
+            source_bytes += _included_tree_size(path)
+    # Gzip usually reduces this substantially. Five percent allows for tar and
+    # encryption overhead and intentionally presents a conservative upper estimate.
+    archive_upper_bytes = int(source_bytes * 1.05) + 1024 * 1024
+    return {
+        "source_bytes": source_bytes,
+        "archive_upper_bytes": archive_upper_bytes,
+        # Staging copy + plaintext archive + encrypted archive coexist briefly.
+        "temporary_required_bytes": source_bytes + (2 * archive_upper_bytes),
+    }
 
 
 def _git_bundle(repository: Path, target: Path) -> dict[str, Any]:

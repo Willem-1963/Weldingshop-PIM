@@ -2,7 +2,7 @@ import sqlite3
 
 from app.server_backup import (
     PROJECT_ROOT, backup_storage_summary, create_server_backup,
-    list_server_backups, verify_server_backup,
+    estimate_server_backup_size, list_server_backups, verify_server_backup,
 )
 
 
@@ -52,3 +52,23 @@ def test_backup_rejects_short_password(tmp_path):
 def test_default_project_root_is_repository_root():
     assert (PROJECT_ROOT / "app" / "server_backup.py").is_file()
     assert (PROJECT_ROOT / ".git").exists()
+
+
+def test_backup_size_estimate_counts_included_data(tmp_path):
+    pim = tmp_path / "pim"
+    erp_source = tmp_path / "erp-source"
+    erp_active = tmp_path / "erp-active"
+    (pim / "data" / "content").mkdir(parents=True)
+    (pim / "data" / "content" / "product.json").write_bytes(b"x" * 4096)
+    (pim / "data" / "content" / "ignored.log").write_bytes(b"x" * 8192)
+    erp_source.mkdir()
+    erp_active.mkdir()
+
+    estimate = estimate_server_backup_size(
+        pim_root=pim, erp_source_root=erp_source, erp_active_root=erp_active,
+        include_server_config=False,
+    )
+
+    assert estimate["source_bytes"] == 4096
+    assert estimate["archive_upper_bytes"] > estimate["source_bytes"]
+    assert estimate["temporary_required_bytes"] > estimate["archive_upper_bytes"]
