@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BACKUP_DIR = Path("/root/weldingshop-backups")
+DEFAULT_BACKUP_DIR = Path("/root/backup")
 ERP_SOURCE_ROOT = Path("/root/weldingshop-erp")
 ERP_ACTIVE_ROOT = Path("/opt/weldingshop-erp/current")
 IGNORED_BACKUP_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache"}
@@ -60,7 +60,7 @@ def _copy_tree(source: Path, target: Path) -> None:
         ignore=shutil.ignore_patterns(
             ".git", ".venv", "__pycache__", ".pytest_cache", "*.pyc",
             "*.sqlite", "*.sqlite3", "*.sqlite-wal", "*.sqlite-shm",
-            "*.log", "weldingshop-backups",
+            "*.log", "backup",
         ),
     )
 

@@ -1942,8 +1942,9 @@ if main_section == "Back-ups":
         ),
     )
     st.info(
-        "De back-up blijft na het maken op de server staan. Download daarna het "
-        "`.enc`-bestand én het `.sha256`-bestand met WinSCP naar je pc."
+        f"De back-up wordt op de server opgeslagen in `{DEFAULT_BACKUP_DIR}`. "
+        "Daar vind je met WinSCP zowel het `.enc`-bestand als het "
+        "`.sha256`-bestand."
     )
     with st.form("encrypted_server_backup", clear_on_submit=True):
         password_columns = st.columns(2)
@@ -1976,8 +1977,8 @@ if main_section == "Back-ups":
                 )
             st.session_state["latest_server_backup"] = result
             st.success(
-                "Back-up voltooid en versleuteld. Kopieer het archief en het "
-                "SHA-256-bestand nu met WinSCP naar je pc."
+                f"Back-up voltooid en versleuteld in {DEFAULT_BACKUP_DIR}. "
+                "Je vindt daar met WinSCP het archief en het SHA-256-bestand."
             )
         except Exception as exc:
             st.error(f"Serverback-up mislukt: {exc}")
@@ -2018,7 +2019,8 @@ if main_section == "Back-ups":
         )
         st.code(selected_backup["path"], language=None)
         st.caption(
-            f"WinSCP-map: {DEFAULT_BACKUP_DIR}. Download zowel `.enc` als `.sha256`."
+            f"WinSCP-servermap: {DEFAULT_BACKUP_DIR}. Download zowel `.enc` als "
+            "`.sha256`."
         )
         action_columns = st.columns(2)
         if action_columns[0].button(
