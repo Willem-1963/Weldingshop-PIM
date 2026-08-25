@@ -232,7 +232,10 @@ def _automatic_start(
             service.clear_source_material(draft_id)
             service.mark_incidental(draft_id, incidental)
             service.save_automation_settings(draft_id, source_research=True)
-            inspect_official_page(service, draft_id, identity["url"])
+            inspect_official_page(
+                service, draft_id, identity["url"],
+                verified_domain=identity["domain"],
+            )
             _build_product_directly(service, draft_id)
             st.session_state["pm_select_after_save"] = draft_id
             _clear_product_editor_widgets()
@@ -979,17 +982,34 @@ def _build_product_directly(service: ProductMakerService, draft_id: int) -> None
     inspected = None
     errors: list[str] = []
     if settings["source_research"]:
-        urls = [draft.get("source_url") or ""]
-        if not draft.get("source_url"):
-            discovery = discover_official_page(draft)
-            st.session_state["pm_search_candidates"] = discovery["candidates"]
-            urls.extend(str(item["url"]) for item in discovery["candidates"])
-        for url in dict.fromkeys(item for item in urls if item):
-            try:
-                inspected = inspect_official_page(service, draft_id, url)
-                break
-            except Exception as exc:
-                errors.append(f"{url}: {exc}")
+        verified_source = next(
+            (
+                item for item in draft.get("evidence") or []
+                if item.get("field_name") == "source_url"
+                and item.get("state") == "proven"
+                and float(item.get("confidence") or 0) >= 1
+                and str(item.get("matched_by") or "") in {
+                    "sku", "ean", "manufacturer_number",
+                }
+                and str(item.get("source_url") or "")
+                == str(draft.get("source_url") or "")
+            ),
+            None,
+        )
+        if verified_source:
+            inspected = {"url": str(draft["source_url"])}
+        else:
+            urls = [draft.get("source_url") or ""]
+            if not draft.get("source_url"):
+                discovery = discover_official_page(draft)
+                st.session_state["pm_search_candidates"] = discovery["candidates"]
+                urls.extend(str(item["url"]) for item in discovery["candidates"])
+            for url in dict.fromkeys(item for item in urls if item):
+                try:
+                    inspected = inspect_official_page(service, draft_id, url)
+                    break
+                except Exception as exc:
+                    errors.append(f"{url}: {exc}")
         if inspected is None:
             raise ValueError(
                 "Geen exact verifieerbare officiële productpagina gevonden. "

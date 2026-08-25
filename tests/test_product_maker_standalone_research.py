@@ -55,6 +55,29 @@ def test_rejects_unapproved_domain(tmp_path):
         raise AssertionError("Niet-goedgekeurd domein werd geaccepteerd")
 
 
+def test_exact_automatic_probe_domain_can_be_inspected(tmp_path, monkeypatch):
+    service = ProductMakerService(tmp_path / "maker.sqlite3")
+    supplier = service.save_supplier("Distributeur", "distributeur.example")
+    draft_id = service.save_draft(
+        supplier_id=supplier, sku="ABC-123", vendor="Test",
+        purchase_price="1", sale_price="2", unit_factor="1",
+    )
+    monkeypatch.setattr(
+        "app.product_maker_standalone.research.requests.get",
+        lambda *args, **kwargs: Response(),
+    )
+
+    result = inspect_official_page(
+        service, draft_id, "https://official.example/p/abc",
+        verified_domain="official.example",
+    )
+
+    assert result["matched_by"] == "sku"
+    assert service.get_supplier(supplier)["approved_domains"] == [
+        "distributeur.example"
+    ]
+
+
 def test_probe_reads_microdata_without_json_ld(monkeypatch):
     class MicrodataResponse:
         headers = {"Content-Type": "text/html"}

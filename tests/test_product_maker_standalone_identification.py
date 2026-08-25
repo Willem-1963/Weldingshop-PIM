@@ -172,3 +172,34 @@ def test_manual_source_build_creates_verified_incidental_supplier(monkeypatch, t
     draft = service.get_draft(draft_id)
     assert draft["approved_domains"] == ["presidentsafety.nl"]
     assert draft["incidental"] == 1
+
+
+def test_build_reuses_exact_source_evidence_without_domain_rejection(
+    monkeypatch, tmp_path,
+):
+    from app.product_maker_standalone.service import ProductMakerService
+
+    service = ProductMakerService(tmp_path / "maker.sqlite3")
+    supplier = service.save_supplier("Distributeur", "distributeur.example")
+    source_url = "https://manufacturer.example/products/abc-123"
+    draft_id = service.save_draft(
+        supplier_id=supplier, sku="ABC-123", vendor="Manufacturer",
+        title="Product", purchase_price="1", sale_price="2", unit_factor="1",
+        source_url=source_url,
+    )
+    service.add_evidence(
+        draft_id, "source_url", source_url, state="proven",
+        source_url=source_url, matched_by="sku", confidence=1,
+    )
+    service.save_automation_settings(
+        draft_id, evidence_enrichment=False, category_suggestion=False,
+        asset_collection=False,
+    )
+    monkeypatch.setattr(
+        page, "inspect_official_page",
+        lambda *args, **kwargs: pytest.fail(
+            "Een reeds exact bewezen bron mag niet opnieuw worden afgewezen"
+        ),
+    )
+
+    page._build_product_directly(service, draft_id)

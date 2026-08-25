@@ -185,10 +185,18 @@ def probe_product_page(
 
 
 def inspect_official_page(
-    service: ProductMakerService, draft_id: int, source_url: str,
+    service: ProductMakerService, draft_id: int, source_url: str, *,
+    verified_domain: str = "",
 ) -> dict[str, Any]:
     draft = service.get_draft(draft_id)
-    domains = draft.get("approved_domains") or []
+    domains = list(draft.get("approved_domains") or [])
+    # The automatic-start probe has already fetched the page and proved the
+    # exact entered SKU/EAN. Permit precisely that returned HTTPS host for this
+    # inspection without broadening the supplier's permanent domain allowlist.
+    verified_host = normalized_host(verified_domain)
+    source_host = normalized_host(source_url)
+    if verified_host and source_host == verified_host and verified_host not in domains:
+        domains.append(verified_host)
     url = _official_url(source_url, domains)
     if not url:
         raise ValueError("De URL staat niet op een goedgekeurd HTTPS-domein")
