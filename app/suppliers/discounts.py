@@ -540,14 +540,17 @@ def _calculated_sales_price(
     gross: Any, cost: Any, value: float,
     rule_type: str = "discount_from_cost",
 ) -> float | None:
-    if gross is None or cost is None:
+    if cost is None:
         return None
-    gross_value, cost_value = float(gross), float(cost)
-    if gross_value <= 0 or cost_value < 0:
+    cost_value = float(cost)
+    if cost_value < 0:
         return None
+    gross_value = float(gross) if gross is not None else None
     if rule_type == "markup_on_cost":
         result = cost_value * (1 + value / 100)
     elif rule_type == "max_discount_over_discount":
+        if gross_value is None or gross_value <= 0:
+            return None
         supplier_discount = max(0, gross_value - cost_value)
         result = gross_value - supplier_discount * value / 100
     elif rule_type == "gross_margin":
@@ -557,6 +560,8 @@ def _calculated_sales_price(
     elif rule_type == "fixed_markup":
         result = cost_value + value
     else:
+        if gross_value is None or gross_value <= 0:
+            return None
         result = gross_value - cost_value * value / 100
     return round(max(0, result), 2)
 

@@ -148,3 +148,35 @@ def test_none_sales_rule_uses_regular_supplier_price_as_fallback(
     row = discounts.preview_sales_prices("kentie", limit=None)[0]
 
     assert row["Berekende verkoopprijs"] == 102.55
+
+
+def test_markup_on_cost_does_not_require_a_gross_supplier_price(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "supplier-without-gross-price.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """CREATE TABLE products(
+               sku TEXT PRIMARY KEY,source_title TEXT,product_type TEXT,
+               category TEXT,category_full TEXT,price REAL,cost_price REAL,
+               sale_price REAL,gross_purchase_price_per_kg REAL,
+               kg_per_sales_unit REAL,source_present INTEGER,updated_at TEXT
+           )"""
+    )
+    connection.execute(
+        "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("HARDER-1", "Harder artikel", "", "", "", None, 10, 51,
+         None, None, 1, "now"),
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(discounts, "init_supplier_database", lambda _slug: database)
+    monkeypatch.setattr(discounts, "get_supplier", lambda _slug: {"request_options": {}})
+    discounts.save_scoped_sales_price_rule(
+        "harder-lastechniek", name="41 procent", match_field="all",
+        match_value="", rule_type="markup_on_cost", rule_value=41,
+    )
+
+    row = discounts.preview_sales_prices("harder-lastechniek", limit=None)[0]
+
+    assert row["Berekende verkoopprijs"] == 14.1
