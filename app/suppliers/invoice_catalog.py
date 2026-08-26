@@ -30,7 +30,7 @@ def invoice_evidence_counts(slug: str, skus: list[str]) -> dict[str, int]:
         rows = conn.execute(
             f"""SELECT sku,COUNT(DISTINCT invoice_number) invoice_count
                 FROM supplier_invoice_product_evidence
-                WHERE sku IN ({placeholders}) COLLATE NOCASE GROUP BY sku""",
+                WHERE sku COLLATE NOCASE IN ({placeholders}) GROUP BY sku""",
             tuple(skus),
         ).fetchall()
     return {str(row["sku"]).casefold(): int(row["invoice_count"]) for row in rows}

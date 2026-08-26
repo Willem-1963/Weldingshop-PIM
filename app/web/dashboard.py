@@ -2850,13 +2850,14 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
     price_columns[0].metric("Inkoopprijs", euro(product.get("price")))
     price_columns[1].metric("Verkoopprijs", euro(product.get("sale_price")))
     price_columns[2].metric("Kostprijs", euro(product.get("cost_price")))
-    invoice_history = (
-        list_product_invoice_evidence(supplier_slug, sku)
-        if supplier_slug == "valkenpower" else []
-    )
+    invoice_history = list_product_invoice_evidence(supplier_slug, sku)
     tabs = st.tabs(
-        ["Productgegevens", "Brondata", "Afbeeldingen"]
-        + ([f"Inkoopfacturen ({len(invoice_history)})"] if supplier_slug == "valkenpower" else [])
+        [
+            "Productgegevens",
+            "Brondata",
+            "Afbeeldingen",
+            f"Inkoopfacturen ({len(invoice_history)})",
+        ]
     )
     details_tab, source_data_tab, images_tab = tabs[:3]
     with details_tab:
@@ -2908,37 +2909,36 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
                 st.caption(image["image_url"])
         else:
             st.info("Voor dit product zijn geen afbeeldingen opgeslagen.")
-    if supplier_slug == "valkenpower":
-        with tabs[3]:
-            if not invoice_history:
-                st.info("Voor dit product zijn nog geen inkoopfacturen gekoppeld.")
-            else:
-                st.caption("Nieuwste factuur bovenaan · alleen intern zichtbaar")
-                with st.container(height=430, border=True):
-                    for invoice in invoice_history:
-                        with st.container(border=True):
-                            st.markdown(
-                                f"**Factuur {invoice['invoice_number']}** · "
-                                f"{invoice.get('invoice_date') or 'datum onbekend'}"
-                            )
-                            st.caption(
-                                f"Regel {invoice['line_number']} · "
-                                f"leveranciersartikel {invoice['supplier_article_number']} · "
-                                f"aantal {invoice.get('quantity') or '—'} · "
-                                f"inkoop {euro(invoice.get('net_unit_price'))}"
-                            )
+    with tabs[3]:
+        if not invoice_history:
+            st.info("Voor dit product zijn nog geen inkoopfacturen gekoppeld.")
+        else:
+            st.caption("Nieuwste factuur bovenaan · alleen intern zichtbaar")
+            with st.container(height=430, border=True):
+                for invoice in invoice_history:
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**Factuur {invoice['invoice_number']}** · "
+                            f"{invoice.get('invoice_date') or 'datum onbekend'}"
+                        )
+                        st.caption(
+                            f"Regel {invoice['line_number']} · "
+                            f"leveranciersartikel {invoice['supplier_article_number']} · "
+                            f"aantal {invoice.get('quantity') or '—'} · "
+                            f"inkoop {euro(invoice.get('net_unit_price'))}"
+                        )
+                        if invoice.get("erp_url"):
                             actions = st.columns(2)
-                            if invoice.get("erp_url"):
-                                actions[0].link_button(
-                                    "Originele PDF", invoice["pdf_url"],
-                                    width="stretch",
-                                )
-                                actions[1].link_button(
-                                    "Open factuur", invoice["erp_url"],
-                                    width="stretch",
-                                )
-                            else:
-                                actions[0].caption("ERP-koppeling ontbreekt")
+                            actions[0].link_button(
+                                "Originele PDF", invoice["pdf_url"],
+                                width="stretch",
+                            )
+                            actions[1].link_button(
+                                "Open factuur", invoice["erp_url"],
+                                width="stretch",
+                            )
+                        else:
+                            st.caption("ERP-koppeling ontbreekt")
 
 
 def safe_description(value: str) -> str:
@@ -7545,20 +7545,15 @@ with products_tab:
     if products_search.strip():
         st.caption(f"{len(products)} product(en) gevonden voor ‘{products_search.strip()}’.")
     if products:
-        invoice_counts = (
-            invoice_evidence_counts(
-                selected_slug, [str(product.get("sku") or "") for product in products]
-            )
-            if selected_slug == "valkenpower" else {}
+        invoice_counts = invoice_evidence_counts(
+            selected_slug, [str(product.get("sku") or "") for product in products]
         )
         products_display = [
             {
                 **product,
-                **({
-                    "invoice_count": invoice_counts.get(
-                        str(product.get("sku") or "").casefold(), 0
-                    )
-                } if selected_slug == "valkenpower" else {}),
+                "invoice_count": invoice_counts.get(
+                    str(product.get("sku") or "").casefold(), 0
+                ),
                 "display_title": (
                     (
                         product.get("ai_title")

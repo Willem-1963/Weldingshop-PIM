@@ -1,5 +1,9 @@
 from app.suppliers.hub import get_supplier_product
-from app.suppliers.invoice_catalog import persist_linked_invoice_product
+from app.suppliers.invoice_catalog import (
+    invoice_evidence_counts,
+    list_product_invoice_evidence,
+    persist_linked_invoice_product,
+)
 
 
 def test_invoice_product_is_created_and_evidence_is_idempotent(monkeypatch, tmp_path):
@@ -50,3 +54,43 @@ def test_invoice_import_does_not_replace_richer_pim_text(monkeypatch, tmp_path):
     product = get_supplier_product("test", "S")
     assert product["source_title"] == "Rijke PIM-titel"
     assert product["source_description"] == "Rijke omschrijving"
+
+
+def test_invoice_history_is_available_for_every_supplier(monkeypatch, tmp_path):
+    monkeypatch.setattr("app.suppliers.hub.SUPPLIER_DIR", tmp_path)
+    monkeypatch.setattr(
+        "app.suppliers.invoice_catalog.init_supplier_database",
+        lambda slug: __import__(
+            "app.suppliers.hub", fromlist=["init_supplier_database"]
+        ).init_supplier_database(slug),
+    )
+    invoice = {
+        "mapping_status": "mapped",
+        "supplier_article_number": "H-100",
+        "shopify_sku": "Shop-100",
+        "invoice_number": "INK-2026-42",
+        "invoice_date": "2026-08-20",
+        "line_number": 3,
+        "quantity": "2",
+        "net_unit_price": "12.50",
+        "erp_intake_id": 42,
+    }
+    shopify = {
+        "id": "variant-100",
+        "sku": "Shop-100",
+        "price": "18.95",
+        "inventory_item_id": "inventory-100",
+        "product": {"id": "product-100", "title": "Lasdraad", "images": []},
+    }
+
+    persist_linked_invoice_product("harder", invoice=invoice, shopify=shopify)
+
+    assert invoice_evidence_counts("harder", ["shop-100", "onbekend"]) == {
+        "shop-100": 1
+    }
+    history = list_product_invoice_evidence("harder", "SHOP-100")
+    assert history[0]["invoice_number"] == "INK-2026-42"
+    assert history[0]["erp_url"].endswith("/purchase-invoice-inbox/42")
+    assert history[0]["pdf_url"].endswith(
+        "/purchase-invoice-inbox/42/original-pdf"
+    )
