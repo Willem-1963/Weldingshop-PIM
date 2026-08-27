@@ -102,3 +102,98 @@ def test_empty_location_deletes_product_metafield(monkeypatch):
     assert "metafieldsDelete" in calls[1][0]
     assert "userErrors{field message code}" not in calls[1][0]
     assert calls[1][1]["metafields"][0]["key"] == "locatie"
+
+
+def test_generated_ean13_has_valid_check_digit_and_is_unique(monkeypatch):
+    calls = []
+
+    class Client:
+        @classmethod
+        def from_settings(cls):
+            return cls()
+
+        def graphql(self, query, variables=None):
+            calls.append((query, variables))
+            return {"productVariants": {"nodes": []}}
+
+    monkeypatch.setattr(label_page, "ShopifyClient", Client)
+
+    ean = label_page.generate_unique_ean()
+
+    assert len(ean) == 13
+    assert ean.startswith("29")
+    assert label_page._valid_ean(ean)
+    assert calls[0][1] == {"query": f'barcode:"{ean}"'}
+
+
+def test_barcode_save_updates_exact_shopify_variant(monkeypatch):
+    calls = []
+    ean = "2900000000018"
+    assert label_page._valid_ean(ean)
+
+    class Client:
+        @classmethod
+        def from_settings(cls):
+            return cls()
+
+        def graphql(self, query, variables=None):
+            calls.append((query, variables))
+            if "LabelBarcodeOwner" in query:
+                return {"productVariants": {"nodes": [{
+                    "id": "gid://shopify/ProductVariant/2",
+                    "sku": "TEST-1",
+                    "barcode": "",
+                    "product": {"id": "gid://shopify/Product/1"},
+                }]}}
+            return {"productVariantsBulkUpdate": {
+                "productVariants": [{
+                    "id": "gid://shopify/ProductVariant/2",
+                    "sku": "TEST-1",
+                    "barcode": ean,
+                }],
+                "userErrors": [],
+            }}
+
+    monkeypatch.setattr(label_page, "ShopifyClient", Client)
+
+    assert label_page.save_shopify_barcode_for_sku("TEST-1", ean) == ean
+    assert calls[1][1] == {
+        "productId": "gid://shopify/Product/1",
+        "variants": [{
+            "id": "gid://shopify/ProductVariant/2", "barcode": ean,
+        }],
+    }
+
+
+def test_invalid_ean_is_not_saved():
+    try:
+        label_page.save_shopify_barcode_for_sku("TEST-1", "2900000000019")
+    except ValueError as exc:
+        assert "geldige EAN-13" in str(exc)
+    else:
+        raise AssertionError("Ongeldige EAN had geweigerd moeten worden")
+
+
+def test_combined_save_validates_ean_before_any_shopify_change(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        label_page,
+        "shopify_label_values_for_sku",
+        lambda _sku: calls.append("read") or {},
+    )
+    monkeypatch.setattr(
+        label_page,
+        "save_shopify_location_for_sku",
+        lambda *_args: calls.append("location"),
+    )
+
+    try:
+        label_page.save_shopify_label_values_for_sku(
+            "TEST-1", "A-01", 2, "2900000000019",
+        )
+    except ValueError as exc:
+        assert "geldige EAN-13" in str(exc)
+    else:
+        raise AssertionError("Ongeldige EAN had geweigerd moeten worden")
+
+    assert calls == []

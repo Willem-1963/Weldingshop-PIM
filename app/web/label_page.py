@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import secrets
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -139,7 +140,7 @@ def shopify_label_values_for_sku(sku: str) -> dict[str, Any]:
         """
         query LabelValuesBySku($query:String!,$locationId:ID!){
           productVariants(first:10,query:$query){nodes{
-            sku
+            id sku barcode
             inventoryItem{
               id tracked
               inventoryLevel(locationId:$locationId){
@@ -169,6 +170,8 @@ def shopify_label_values_for_sku(sku: str) -> dict[str, Any]:
     ), 0)
     return {
         "custom_location": str(metafield.get("value") or "").strip(),
+        "ean": str(variant.get("barcode") or "").strip(),
+        "variant_id": str(variant.get("id") or ""),
         "inventory_quantity": quantity,
         "inventory_item_id": str(inventory_item.get("id") or ""),
         "inventory_active": bool(level),
@@ -178,6 +181,108 @@ def shopify_label_values_for_sku(sku: str) -> dict[str, Any]:
 
 def shopify_location_for_sku(sku: str) -> str:
     return str(shopify_label_values_for_sku(sku).get("custom_location") or "")
+
+
+def _ean13_check_digit(first_twelve: str) -> str:
+    if len(first_twelve) != 12 or not first_twelve.isdigit():
+        raise ValueError("Voor een EAN-13 zijn eerst precies 12 cijfers nodig.")
+    weighted_sum = sum(
+        int(character) * (1 if index % 2 == 0 else 3)
+        for index, character in enumerate(first_twelve)
+    )
+    return str((-weighted_sum) % 10)
+
+
+def _valid_ean(value: str) -> bool:
+    return (
+        len(value) == 13
+        and value.isdigit()
+        and value[-1] == _ean13_check_digit(value[:12])
+    )
+
+
+def generate_unique_ean() -> str:
+    """Genereer een ongebruikte interne EAN-13 in het bereik 29."""
+    client = ShopifyClient.from_settings()
+    for _attempt in range(50):
+        first_twelve = f"29{secrets.randbelow(10**10):010d}"
+        ean = first_twelve + _ean13_check_digit(first_twelve)
+        escaped = ean.replace('"', '\\"')
+        data = client.graphql(
+            """
+            query ExistingLabelBarcode($query:String!){
+              productVariants(first:1,query:$query){nodes{id}}
+            }
+            """,
+            {"query": f'barcode:"{escaped}"'},
+        )
+        if not (data.get("productVariants") or {}).get("nodes"):
+            return ean
+    raise RuntimeError("Kon na 50 pogingen geen unieke EAN-code genereren.")
+
+
+def _generate_ean_for_widget(widget_key: str) -> None:
+    """Form-callback: zet de nieuwe EAN vóór de volgende Streamlit-render."""
+    st.session_state[widget_key] = generate_unique_ean()
+
+
+def save_shopify_barcode_for_sku(sku: str, ean: str) -> str:
+    """Bewaar een EAN op precies één Shopify-variant."""
+    clean_sku = sku.strip()
+    clean_ean = ean.strip().replace(" ", "")
+    if not clean_sku:
+        raise ValueError("SKU is verplicht.")
+    if clean_ean and not _valid_ean(clean_ean):
+        raise ValueError("Barcode-EAN moet een geldige EAN-13 met controlecijfer zijn.")
+    escaped = clean_sku.replace("\\", "\\\\").replace('"', '\\"')
+    client = ShopifyClient.from_settings()
+    data = client.graphql(
+        """
+        query LabelBarcodeOwner($query:String!){
+          productVariants(first:10,query:$query){nodes{id sku barcode product{id}}}
+        }
+        """,
+        {"query": f'sku:"{escaped}"'},
+    )
+    exact = [
+        node for node in (data.get("productVariants") or {}).get("nodes") or []
+        if str(node.get("sku") or "").strip().upper() == clean_sku.upper()
+    ]
+    if len(exact) != 1:
+        raise ValueError(f"SKU {clean_sku} is niet exact één keer in Shopify gevonden.")
+    variant = exact[0]
+    current = str(variant.get("barcode") or "").strip()
+    if current == clean_ean:
+        return current
+    product_id = str((variant.get("product") or {}).get("id") or "")
+    variant_id = str(variant.get("id") or "")
+    if not product_id or not variant_id:
+        raise RuntimeError(f"Shopify-ID ontbreekt voor SKU {clean_sku}.")
+    result = client.graphql(
+        """
+        mutation SaveLabelBarcode($productId:ID!,$variants:[ProductVariantsBulkInput!]!){
+          productVariantsBulkUpdate(productId:$productId,variants:$variants){
+            productVariants{id sku barcode}
+            userErrors{field message code}
+          }
+        }
+        """,
+        {"productId": product_id, "variants": [{"id": variant_id, "barcode": clean_ean}]},
+    )
+    payload = result.get("productVariantsBulkUpdate") or {}
+    if payload.get("userErrors"):
+        raise RuntimeError(
+            "; ".join(str(error.get("message") or error) for error in payload["userErrors"])
+        )
+    saved = next((
+        str(item.get("barcode") or "").strip()
+        for item in payload.get("productVariants") or []
+        if str(item.get("id") or "") == variant_id
+    ), "")
+    if saved != clean_ean:
+        raise RuntimeError("Shopify bevestigde de nieuwe Barcode-EAN niet.")
+    shopify_label_values_for_sku.clear()
+    return saved
 
 
 def save_shopify_location_for_sku(sku: str, location: str) -> str:
@@ -269,13 +374,23 @@ def save_shopify_location_for_sku(sku: str, location: str) -> str:
     return saved
 
 
-def save_shopify_label_values_for_sku(sku: str, location: str, quantity: int) -> dict[str, Any]:
-    """Bewaar locatiecode en absolute voorraad op Shopify-locatie Weldingshop."""
-    current = shopify_label_values_for_sku(sku)
+def save_shopify_label_values_for_sku(
+    sku: str, location: str, quantity: int, ean: str | None = None,
+) -> dict[str, Any]:
+    """Bewaar locatiecode, EAN en absolute voorraad bij Weldingshop."""
     clean_quantity = int(quantity)
     if clean_quantity < 0:
         raise ValueError("Voorraad kan niet negatief zijn.")
+    clean_ean = None if ean is None else ean.strip().replace(" ", "")
+    if clean_ean and not _valid_ean(clean_ean):
+        # Valideer vóór locatie of voorraad wordt gewijzigd: een invoerfout mag
+        # nooit een half opgeslagen formulier achterlaten.
+        raise ValueError("Barcode-EAN moet een geldige EAN-13 met controlecijfer zijn.")
+    current = shopify_label_values_for_sku(sku)
     saved_location = save_shopify_location_for_sku(sku, location)
+    saved_ean = current.get("ean", "")
+    if clean_ean is not None and clean_ean != str(saved_ean or "").strip():
+        saved_ean = save_shopify_barcode_for_sku(sku, clean_ean)
     client = ShopifyClient.from_settings()
     inventory_item_id = current["inventory_item_id"]
     shopify_location_id = current["shopify_location_id"]
@@ -324,7 +439,11 @@ def save_shopify_label_values_for_sku(sku: str, location: str, quantity: int) ->
     if payload.get("userErrors"):
         raise RuntimeError(json.dumps(payload["userErrors"], ensure_ascii=False))
     shopify_label_values_for_sku.clear()
-    return {"custom_location": saved_location, "inventory_quantity": clean_quantity}
+    return {
+        "custom_location": saved_location,
+        "inventory_quantity": clean_quantity,
+        "ean": saved_ean,
+    }
 
 
 def code39_svg(value: str) -> str:
@@ -620,6 +739,7 @@ def show_label_page(force_reload: bool = False) -> None:
             str(full_product.get("sku") or "")
         )
         full_product["custom_location"] = shopify_label_values["custom_location"]
+        full_product["ean"] = shopify_label_values["ean"]
         shopify_inventory_quantity = int(shopify_label_values["inventory_quantity"])
         shopify_values_error = ""
     except Exception as exc:
@@ -631,16 +751,34 @@ def show_label_page(force_reload: bool = False) -> None:
 
     # Widgets in een formulier veroorzaken bij iedere klik op +/- geen volledige
     # paginarerun. Zo blijven productkeuze, ontwerp en scrollpositie stabiel.
+    location_key = f"label_location_value_{full_product.get('sku', '')}"
+    ean_key = f"label_ean_value_{full_product.get('sku', '')}"
+    if location_key not in st.session_state:
+        st.session_state[location_key] = str(full_product.get("custom_location") or "")
+    if ean_key not in st.session_state:
+        st.session_state[ean_key] = str(full_product.get("ean") or "")
     with st.form(f"label_product_settings_{full_product.get('sku', '')}"):
-        location_col, quantity_col, save_col = st.columns(
-            [2.2, 0.7, 0.8], vertical_alignment="bottom"
+        location_col, ean_col, generate_col, quantity_col, save_col = st.columns(
+            [1.5, 1.5, 0.8, 0.8, 0.8], vertical_alignment="bottom"
         )
         with location_col:
             location_input = st.text_input(
                 "Locatie",
-                value=str(full_product.get("custom_location") or ""),
-                key=f"label_location_value_{full_product.get('sku', '')}",
+                key=location_key,
                 placeholder="Vul de locatie in",
+            )
+        with ean_col:
+            ean_input = st.text_input(
+                "Barcode-EAN",
+                key=ean_key,
+                placeholder="Vul of genereer een EAN-13",
+            )
+        with generate_col:
+            st.form_submit_button(
+                "Genereer EAN",
+                width="stretch",
+                on_click=_generate_ean_for_widget,
+                args=(ean_key,),
             )
         with quantity_col:
             inventory_quantity = st.number_input(
@@ -661,10 +799,11 @@ def show_label_page(force_reload: bool = False) -> None:
                 sku = str(full_product.get("sku") or "")
                 if shopify_values_error:
                     saved_location = save_shopify_location_for_sku(sku, location_input)
+                    saved_ean = save_shopify_barcode_for_sku(sku, ean_input)
                     full_product["custom_location"] = saved_location
+                    full_product["ean"] = saved_ean
                     st.success(
-                        f"Locatie {saved_location} is opgeslagen en staat op het label."
-                        if saved_location else "Locatie is verwijderd uit Shopify en van het label."
+                        "Locatie en Barcode-EAN zijn opgeslagen en staan op het label."
                     )
                     st.warning(
                         "De voorraad kon niet worden opgeslagen, omdat de Shopify-"
@@ -672,12 +811,13 @@ def show_label_page(force_reload: bool = False) -> None:
                     )
                 else:
                     saved = save_shopify_label_values_for_sku(
-                        sku, location_input, int(inventory_quantity),
+                        sku, location_input, int(inventory_quantity), ean_input,
                     )
                     full_product["custom_location"] = saved["custom_location"]
+                    full_product["ean"] = saved["ean"]
                     st.success(
-                        f"Locatie {saved['custom_location']} en voorraad "
-                        f"{saved['inventory_quantity']} bij Weldingshop zijn opgeslagen."
+                        f"Locatie, Barcode-EAN {saved['ean'] or '(leeg)'} en voorraad "
+                        f"{saved['inventory_quantity']} zijn opgeslagen."
                     )
                 # Een zojuist opgeslagen locatie moet direct zichtbaar zijn;
                 # de gebruiker hoeft het labelveld niet nogmaals apart aan te zetten.
@@ -685,10 +825,10 @@ def show_label_page(force_reload: bool = False) -> None:
                     full_product["custom_location"]
                 )
                 saved_location = str(full_product["custom_location"])
+                saved_ean = str(full_product.get("ean") or "")
                 st.session_state["label_location_saved_message"] = (
-                    f"Locatie {saved_location} is opgeslagen en de labelpreview is vernieuwd."
-                    if saved_location else
-                    "Locatie is verwijderd uit Shopify en van de labelpreview."
+                    f"Locatie {saved_location or '(leeg)'} en Barcode-EAN "
+                    f"{saved_ean or '(leeg)'} zijn opgeslagen; de labelpreview is vernieuwd."
                 )
                 st.rerun()
             except Exception as exc:
