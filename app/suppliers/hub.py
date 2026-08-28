@@ -34,6 +34,8 @@ DATABASE_DIR = DATA_DIR / "database"
 SUPPLIER_DIR = DATABASE_DIR / "suppliers"
 IMPORT_DIR = DATA_DIR / "imports"
 EXPORT_DIR = DATA_DIR / "output" / "suppliers"
+PRODUCT_MAKER_UPLOAD_DIR = DATA_DIR / "product_maker_uploads"
+PRODUCT_MAKER_SUPPLIER_ASSET_DIR = DATA_DIR / "product_maker_supplier_assets"
 CONFIG_DIR = BASE_DIR / "config"
 REGISTRY_PATH = DATABASE_DIR / "supplier_registry.sqlite"
 KEY_PATH = CONFIG_DIR / ".supplier_secrets.key"
@@ -3574,7 +3576,47 @@ def get_supplier_product(slug: str, sku: str) -> dict[str, Any] | None:
         result["raw_data"] = json.loads(result.get("raw_data_json") or "{}")
     except json.JSONDecodeError:
         result["raw_data"] = {}
+    manual_images = (
+        (result["raw_data"].get("product_maker_overrides") or {})
+        .get("manual_images") or []
+    )
+    known_images = {str(item.get("image_url") or "") for item in result["images"]}
+    result["images"].extend(
+        item for item in manual_images
+        if str(item.get("image_url") or "") not in known_images
+        and Path(str(item.get("image_url") or "")).is_file()
+    )
     return result
+
+
+def _persist_product_maker_local_image(
+    slug: str, sku: str, image: dict[str, Any], position: int,
+) -> dict[str, Any] | None:
+    """Kopieer een tijdelijke upload naar een duurzaam leveranciers-PIM-pad."""
+    source = Path(str(image.get("url") or ""))
+    if not source.is_absolute() or not source.is_file() or not image.get("selected"):
+        return None
+    try:
+        source.resolve().relative_to(PRODUCT_MAKER_UPLOAD_DIR.resolve())
+    except ValueError:
+        return None
+    suffix = source.suffix.casefold()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        return None
+    safe_slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", slug).strip("-") or "supplier"
+    safe_sku = re.sub(r"[^A-Za-z0-9_.-]+", "-", sku).strip("-") or "product"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    directory = PRODUCT_MAKER_SUPPLIER_ASSET_DIR / safe_slug / safe_sku
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{digest}{suffix}"
+    if not target.exists():
+        target.write_bytes(source.read_bytes())
+    return {
+        "image_url": str(target.resolve()),
+        "position": int(position),
+        "alt_text": str(image.get("title") or ""),
+        "source": "handmatige upload",
+    }
 
 
 def save_product_maker_values(
@@ -3646,6 +3688,13 @@ def save_product_maker_values(
             "notes": str(values.get("notes") or ""),
             "saved_at": now,
         }
+        manual_images = [
+            saved for position, image in enumerate(images or [], start=1)
+            if (saved := _persist_product_maker_local_image(
+                slug, sku, image, position
+            )) is not None
+        ]
+        overrides["manual_images"] = manual_images
         raw["product_maker_overrides"] = overrides
         conn.execute(
             """UPDATE products SET ean=?,vendor=?,brand=?,ai_title=?,
@@ -3666,12 +3715,12 @@ def save_product_maker_values(
                 json.dumps(raw, ensure_ascii=False), now, now, sku,
             ),
         )
-        saved_images = 0
+        saved_images = len(manual_images)
         for position, image in enumerate(images or [], start=1):
             image_url = str(image.get("url") or "").strip()
-            # Supplier product_images is consumed as a public URL catalog.
-            # Locally uploaded productmaker files remain owned by pm_assets and
-            # are staged to Shopify by the standalone publisher.
+            # Openbare beelden blijven in de URL-catalogus. Lokale uploads zijn
+            # hierboven naar een duurzaam leveranciersasset gekopieerd en staan
+            # in product_maker_overrides.manual_images.
             if (
                 not image_url.startswith(("http://", "https://"))
                 or not _is_publishable_image_url(image_url)

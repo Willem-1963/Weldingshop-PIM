@@ -96,7 +96,7 @@ def test_productmaker_creates_missing_sku_at_selected_supplier(monkeypatch, tmp_
     assert json.loads(product["raw_data_json"])["product_maker_created"] is True
 
 
-def test_productmaker_does_not_copy_local_upload_path_to_supplier_images(
+def test_productmaker_copies_local_upload_to_durable_supplier_asset(
     monkeypatch, tmp_path,
 ):
     database = tmp_path / "supplier.sqlite"
@@ -119,14 +119,30 @@ def test_productmaker_does_not_copy_local_upload_path_to_supplier_images(
             INSERT INTO products(sku,raw_data_json) VALUES('LOCAL-1','{}');"""
         )
     monkeypatch.setattr(hub, "init_supplier_database", lambda slug: database)
+    upload_root = tmp_path / "product_maker_uploads"
+    source = upload_root / "1" / "photo.jpg"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"product photo")
+    asset_root = tmp_path / "supplier_assets"
+    monkeypatch.setattr(hub, "PRODUCT_MAKER_UPLOAD_DIR", upload_root)
+    monkeypatch.setattr(hub, "PRODUCT_MAKER_SUPPLIER_ASSET_DIR", asset_root)
 
     result = hub.save_product_maker_values(
         "supplier", "LOCAL-1", {"title": "Lokale foto", "sale_price": 1},
-        [{"url": "/root/weldingshop-pim/data/product_maker_uploads/1/photo.jpg",
-          "selected": True}],
+        [{"url": str(source), "title": "Vooraanzicht", "selected": True}],
     )
 
     with sqlite3.connect(database) as db:
         image_count = db.execute("SELECT COUNT(*) FROM product_images").fetchone()[0]
-    assert result["saved_images"] == 0
+        raw = json.loads(db.execute(
+            "SELECT raw_data_json FROM products WHERE sku='LOCAL-1'"
+        ).fetchone()[0])
+    saved = raw["product_maker_overrides"]["manual_images"][0]
+    assert result["saved_images"] == 1
     assert image_count == 0
+    assert saved["alt_text"] == "Vooraanzicht"
+    assert saved["image_url"].startswith(str(asset_root))
+    assert open(saved["image_url"], "rb").read() == b"product photo"
+
+    product = hub.get_supplier_product("supplier", "LOCAL-1")
+    assert product["images"] == [saved]
