@@ -1481,6 +1481,7 @@ def save_inventory_mapping(
                     rule.get("collection_title") or ""
                 ).strip()[:255],
                 "continue_selling": bool(rule.get("continue_selling")),
+                "exclude": bool(rule.get("exclude")),
             }
             for rule in continue_selling_collection_rules
             if str(rule.get("collection_id") or "").strip()

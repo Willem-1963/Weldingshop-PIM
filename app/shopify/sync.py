@@ -1795,6 +1795,8 @@ def _input(
             "requiresShipping": True,
         },
     }
+    if product.get("_exclude_inventory_policy"):
+        variant.pop("inventoryPolicy", None)
     if product.get("ean"):
         variant["barcode"] = product["ean"]
     if _mapped(product, "variant.barcode") not in (None, ""):
@@ -2401,10 +2403,11 @@ def _selected_inventory_location(
 
 def _collection_inventory_policy_skus(
     client: ShopifyClient, supplier: dict[str, Any]
-) -> tuple[set[str], set[str]]:
-    """Resolve collection overrides; deny wins when memberships conflict."""
+) -> tuple[set[str], set[str], set[str]]:
+    """Resolve overrides; exclusion wins, followed by deny and continue."""
     continue_skus: set[str] = set()
     deny_skus: set[str] = set()
+    excluded_skus: set[str] = set()
     rules = (supplier.get("request_options") or {}).get(
         "continue_selling_collection_rules"
     ) or []
@@ -2413,12 +2416,16 @@ def _collection_inventory_policy_skus(
         if not collection_id:
             continue
         members = collection_product_skus(client, collection_id)
-        if rule.get("continue_selling"):
+        if rule.get("exclude"):
+            excluded_skus.update(members)
+        elif rule.get("continue_selling"):
             continue_skus.update(members)
         else:
             deny_skus.update(members)
     continue_skus.difference_update(deny_skus)
-    return continue_skus, deny_skus
+    continue_skus.difference_update(excluded_skus)
+    deny_skus.difference_update(excluded_skus)
+    return continue_skus, deny_skus, excluded_skus
 
 
 def _apply_collection_inventory_policies(
@@ -2432,7 +2439,7 @@ def _apply_collection_inventory_policies(
     # Apply CONTINUE first and DENY last, matching the deny-wins conflict rule.
     for rule in sorted(rules, key=lambda item: not bool(item.get("continue_selling"))):
         collection_id = str(rule.get("collection_id") or "").strip()
-        if collection_id:
+        if collection_id and not rule.get("exclude"):
             updated += set_collection_inventory_policy(
                 client,
                 collection_id,
@@ -2467,7 +2474,7 @@ def sync_all_products(
         )
     )
     _apply_collection_inventory_policies(client, supplier)
-    collection_continue_skus, collection_deny_skus = (
+    collection_continue_skus, collection_deny_skus, collection_excluded_skus = (
         _collection_inventory_policy_skus(client, supplier)
     )
     keep_active_with_other_stock = bool(
@@ -2492,17 +2499,22 @@ def sync_all_products(
             shopify_metafield_mapping
         )
         normalized_sku = str(product.get("sku") or "").strip().upper()
+        inventory_policy_excluded = normalized_sku in collection_excluded_skus
         product_continue_selling = (
             False if normalized_sku in collection_deny_skus
             else True if normalized_sku in collection_continue_skus
             else continue_selling
         )
-        product["inventory_policy"] = (
-            "continue" if product_continue_selling else "deny"
-        )
-        product["_delivery_time_notice"] = _configured_delivery_time_notice(
-            supplier, product_continue_selling
-        )
+        if inventory_policy_excluded:
+            product["_exclude_inventory_policy"] = True
+            product["_delivery_time_notice"] = ""
+        else:
+            product["inventory_policy"] = (
+                "continue" if product_continue_selling else "deny"
+            )
+            product["_delivery_time_notice"] = _configured_delivery_time_notice(
+                supplier, product_continue_selling
+            )
         product["_keep_active_when_out_of_stock"] = (
             keep_active_when_out_of_stock
             or _stock_stays_active_at_zero(

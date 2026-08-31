@@ -4206,7 +4206,7 @@ with source_sync_subtab:
         source_sync_planning_tab,
     ) = st.tabs([
         "7.1 Producten uit de bron verwijderen",
-        "7.2 Doorgaan met verkopen aan/uit",
+        "7.2 Doorgaan of stoppen met verkopen",
         "7.3 Synchronisatie planning",
     ])
 
@@ -4250,7 +4250,7 @@ with source_missing_products_tab:
 
 
 with source_continue_selling_tab:
-    st.markdown("#### Doorgaan met verkopen wanneer niet op voorraad")
+    st.markdown("#### Doorgaan of stoppen met verkopen wanneer niet op voorraad")
     st.caption(
         "Deze instelling wijzigt uitsluitend het Shopify-voorraadbeleid van "
         "deze leverancier. De bronverwijdering en synchronisatieplanning "
@@ -4336,7 +4336,9 @@ with source_continue_selling_tab:
                     or collection_id
                 ),
                 "Instelling": (
-                    "Aan · doorgaan met verkopen"
+                    "Gehele collectie uitsluiten"
+                    if stored_rule.get("exclude")
+                    else "Aan · doorgaan met verkopen"
                     if stored_rule.get("continue_selling", True)
                     else "Uit · stoppen bij voorraad 0"
                 ),
@@ -4353,10 +4355,11 @@ with source_continue_selling_tab:
             column_config={
                 "Collectie": st.column_config.TextColumn("Collectie"),
                 "Instelling": st.column_config.SelectboxColumn(
-                    "Doorgaan met verkopen",
+                    "Doorgaan of stoppen met verkopen",
                     options=[
                         "Aan · doorgaan met verkopen",
                         "Uit · stoppen bij voorraad 0",
+                        "Gehele collectie uitsluiten",
                     ],
                     required=True,
                 ),
@@ -4366,7 +4369,8 @@ with source_continue_selling_tab:
         )
         st.caption(
             "Veilige conflictregel: staat een product in meerdere gekozen "
-            "collecties, dan heeft ‘Uit’ voorrang op ‘Aan’."
+            "collecties, dan heeft ‘Gehele collectie uitsluiten’ voorrang, "
+            "daarna ‘Uit’ en daarna ‘Aan’."
         )
         delivery_time_notice_text = st.text_input(
             "Tekst in custom veld Verwachte product levertijd",
@@ -4381,7 +4385,7 @@ with source_continue_selling_tab:
             ),
         )
         save_continue_selling = st.form_submit_button(
-            "Instelling voor doorgaan met verkopen opslaan"
+            "Instelling voor doorgaan of stoppen met verkopen opslaan"
         )
     if save_continue_selling:
         collection_rules = [
@@ -4390,6 +4394,9 @@ with source_continue_selling_tab:
                 "collection_title": str(row.get("Collectie") or ""),
                 "continue_selling": (
                     row.get("Instelling") == "Aan · doorgaan met verkopen"
+                ),
+                "exclude": (
+                    row.get("Instelling") == "Gehele collectie uitsluiten"
                 ),
             }
             for row in collection_rule_editor.to_dict("records")
