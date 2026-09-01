@@ -25,12 +25,14 @@ from app.suppliers.hub import (
     DEFAULT_MAPPING,
     apply_source_transformations,
     cleanup_missing_supplier_products,
+    delete_supplier,
     get_supplier,
     get_supplier_product,
     import_records,
     init_registry,
     list_products,
     list_suppliers,
+    load_imported_source_analysis,
     read_source,
     save_excel_header_row,
     save_inventory_mapping,
@@ -52,6 +54,11 @@ from app.suppliers.hub import (
 from app.suppliers.invoice_catalog import (
     invoice_evidence_counts,
     list_product_invoice_evidence,
+)
+from app.suppliers.sales_history import (
+    full_sync as full_sales_history_sync,
+    incremental_sync as incremental_sales_history_sync,
+    sales_report,
 )
 from app.server_backup import (
     DEFAULT_BACKUP_DIR,
@@ -185,6 +192,12 @@ from app.suppliers.tecweld_bulk_enrichment import (
     tecweld_enrichment_status,
     start_tecweld_enrichment,
 )
+from app.suppliers.rhodius_catalogue_enrichment import (
+    resume_rhodius_catalogue_enrichment,
+    rhodius_catalogue_status,
+    start_rhodius_catalogue_enrichment,
+    stop_rhodius_catalogue_enrichment,
+)
 from app.suppliers.tecweld_dutch_chain import (
     start_product_translation,
     translation_status,
@@ -267,6 +280,11 @@ def source_record_product_name(
     candidate_fields = [
         title_field,
         description_field,
+        "__pim_title",
+        "__pim_description",
+        "Productnaam",
+        "Productomschrijving",
+        "Omschrijving",
         "Product description",
         "product_description",
         "description",
@@ -280,6 +298,20 @@ def source_record_product_name(
         if value:
             return value
     return "Naamloos"
+
+
+def source_record_sku(record: dict, sku_field: str = "") -> str:
+    """Return a recognizable SKU even before the SKU mapping is saved."""
+    for field in (
+        sku_field, "__pim_sku", "SKU", "sku", "Artikelnummer",
+        "Article No.", "Article No", "article_number", "Productnummer",
+    ):
+        if not field:
+            continue
+        value = str(record.get(field) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def show_fixed_field_status(widget_key: str, fixed: bool) -> None:
@@ -676,7 +708,12 @@ def render_typed_transformation_rules(
             item_columns[0].code(field_name)
             item_label = item_columns[1].text_input(
                 f"Label voor {field_name}",
-                value=str(saved_item.get("label") or field_name),
+                value=str(
+                    saved_item.get("label", field_name)
+                    if saved_item.get("label", field_name) is not None
+                    else ""
+                ),
+                placeholder="Leeg = alleen de waarde tonen",
                 label_visibility="collapsed",
                 key=f"{state_root}_collection_label_{index}",
             )
@@ -689,7 +726,7 @@ def render_typed_transformation_rules(
             )
             collection_items.append({
                 "field": field_name,
-                "label": item_label.strip() or field_name,
+                "label": item_label.strip(),
                 "unit": item_unit.strip(),
             })
         format_options = [
@@ -770,7 +807,7 @@ def render_typed_transformation_rules(
             default_template = "".join(
                 (
                     f"{{% if {item['field']} %}}"
-                    f"<li><strong>{html.escape(item['label'])}:</strong> "
+                    f"<li>{('<strong>' + html.escape(item['label']) + ':</strong> ') if item['label'] else ''}"
                     f"{{{{ {item['field']} }}}}"
                     f"{(' ' + html.escape(item['unit'])) if item['unit'] else ''}"
                     "</li>{% endif %}"
@@ -1210,7 +1247,7 @@ def show_transformation_dialog(
             "Zoek en selecteer een voorbeeldproduct",
             record_options,
             format_func=lambda index: (
-                f"{records[index].get(sku_field) or 'Geen SKU'} · "
+                f"{source_record_sku(records[index], sku_field) or 'Geen SKU'} · "
                 f"{source_record_product_name(records[index], title_field, description_field)[:90]}"
             ),
             key=f"rule_example_{supplier_slug}_{source_field}",
@@ -1220,7 +1257,7 @@ def show_transformation_dialog(
             ),
         )
         selected_example = records[selected_record_index]
-        supplier_sku = str(selected_example.get(sku_field) or "").strip()
+        supplier_sku = source_record_sku(selected_example, sku_field)
         sku_prefix = str(
             (current_supplier.get("request_options") or {}).get(
                 "sku_prefix"
@@ -1719,6 +1756,20 @@ st.markdown(
     .ws-meta div { padding:.18rem 0; }
     .ws-section { border-top:2px solid #ecebe7; margin-top:1.4rem; padding-top:1rem; }
     .ws-section h2 { font-size:1.35rem; color:var(--ws-charcoal); }
+    .ws-specs { margin:.35rem 0 1rem; border:1px solid #e4e1db;
+      border-radius:12px; overflow:hidden; background:#fff; }
+    .ws-spec-row { display:grid; grid-template-columns:minmax(180px, 38%) 1fr;
+      border-bottom:1px solid #ece9e3; }
+    .ws-spec-row:last-child { border-bottom:0; }
+    .ws-spec-label,.ws-spec-value { margin:0; padding:.72rem .9rem;
+      overflow-wrap:anywhere; }
+    .ws-spec-label { background:#f7f6f3; color:#4e4e4e; font-weight:650; }
+    .ws-spec-value { color:var(--ws-charcoal); }
+    @media (max-width:640px) {
+      .ws-spec-row { grid-template-columns:1fr; }
+      .ws-spec-label { padding-bottom:.25rem; }
+      .ws-spec-value { padding-top:.25rem; }
+    }
     .ws-thumb-label { color:#777; font-size:.78rem; }
     .pim-hero { padding:1.2rem 0 1.5rem; }
     .pim-hero h1 { font-size:2.65rem; margin-bottom:.3rem; color:var(--ws-charcoal); }
@@ -2396,6 +2447,12 @@ if main_section == "Back-ups":
 
 st.title("Leverancierssynchronisatie")
 st.caption("Leveranciersdata analyseren, beheren en voorbereiden voor Shopify")
+deleted_supplier_result = st.session_state.pop("deleted_supplier_result", None)
+if deleted_supplier_result:
+    st.success(
+        f"Leverancier {deleted_supplier_result['name']} is verwijderd uit het PIM. "
+        f"Herstelarchief: {deleted_supplier_result['archive'] or 'geen lokale database'}"
+    )
 
 
 def _format_sync_log_datetime(value: object) -> str:
@@ -2798,6 +2855,28 @@ def _flatten_source_data(
     return rows
 
 
+PRODUCT_FIELD_LABELS = {
+    "sku": "SKU",
+    "ean": "EAN",
+    "title": "Productnaam",
+    "description": "Omschrijving",
+    "price": "Bruto-/van-prijs",
+    "sale_price": "Verkoopprijs",
+    "cost_price": "Netto inkoopprijs",
+    "weight": "Gewicht",
+    "weight_kg": "Verzendgewicht (kg)",
+    "primary_image": "Hoofdafbeelding",
+    "stock": "Voorraad",
+    "product_type": "Producttype",
+    "category": "Categorie",
+    "category_full": "Volledige categorie",
+    "purchase_unit": "Inkoopeenheid",
+    "sales_unit": "Verkoopeenheid",
+    "purchase_units_per_sales_unit": "Inkoop per verkoop",
+    "purchase_discount_percent": "Inkoopkorting (%)",
+}
+
+
 @st.dialog("Prijsopbouw", width="small")
 def show_purchase_price_details(product: dict) -> None:
     st.caption(f"Alleen intern · SKU {product.get('sku') or '—'}")
@@ -2808,6 +2887,28 @@ def show_purchase_price_details(product: dict) -> None:
         f"{float(discount):g}%" if discount is not None else "—",
     )
     st.metric("Netto inkoopprijs", euro(product.get("cost_price")))
+
+
+def render_certilas_minimum_sales_price(product: dict) -> None:
+    cost_price = product.get("cost_price")
+    st.caption(
+        f"Alleen intern · Certilas · SKU {product.get('sku') or '—'}"
+    )
+    if cost_price is None or float(cost_price) <= 0:
+        st.warning(
+            "Voor dit product is nog geen positieve kostprijs beschikbaar. "
+            "De minimale verkoopprijs kan daarom niet worden berekend."
+        )
+        return
+    minimum_sales_price = round(float(cost_price) * 1.41, 2)
+    st.markdown(
+        f"Kostprijs inclusief eventuele legeringstoeslag: "
+        f"**{euro(cost_price)}**"
+    )
+    st.markdown(
+        f"{euro(cost_price)} × 1,41 = **{euro(minimum_sales_price)}**"
+    )
+    st.metric("Minimale verkoopprijs", euro(minimum_sales_price))
 
 
 @st.dialog("Productinformatie", width="large")
@@ -2846,10 +2947,31 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
             st.markdown(f"[Open product in Shopify]({result['admin_url']})")
         except Exception as exc:
             st.error(f"Opslaan in Shopify mislukt: {exc}")
-    price_columns = st.columns(3)
+    is_certilas = supplier_slug == "certilas"
+    price_columns = st.columns(4 if is_certilas else 3)
     price_columns[0].metric("Inkoopprijs", euro(product.get("price")))
     price_columns[1].metric("Verkoopprijs", euro(product.get("sale_price")))
     price_columns[2].metric("Kostprijs", euro(product.get("cost_price")))
+    if is_certilas:
+        cost_price = product.get("cost_price")
+        has_valid_cost_price = bool(
+            cost_price is not None and float(cost_price) > 0
+        )
+        minimum_sales_price = (
+            round(float(cost_price) * 1.41, 2)
+            if has_valid_cost_price else None
+        )
+        with price_columns[3]:
+            st.metric(
+                "Minimale verkoopprijs",
+                euro(minimum_sales_price),
+            )
+            if has_valid_cost_price:
+                with st.popover(
+                    "👁 Berekening",
+                    help="Interne berekening bekijken",
+                ):
+                    render_certilas_minimum_sales_price(product)
     invoice_history = list_product_invoice_evidence(supplier_slug, sku)
     tabs = st.tabs(
         [
@@ -2883,12 +3005,33 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
         raw_data = product.get("raw_data") or {}
         if raw_data:
             source_rows = _flatten_source_data(raw_data)
+            supplier_config = get_supplier(supplier_slug) or {}
+            saved_mapping = supplier_config.get("field_mapping") or {}
+            recognized_mapping = {
+                **suggest_source_field_mapping(raw_data.keys()),
+                **saved_mapping,
+            }
+            mapping_by_source: dict[str, list[str]] = {}
+            for target, source_field in recognized_mapping.items():
+                if source_field:
+                    mapping_by_source.setdefault(str(source_field), []).append(
+                        PRODUCT_FIELD_LABELS.get(
+                            target, target.replace("_", " ").capitalize()
+                        )
+                    )
+            for row in source_rows:
+                root_field = row["Bronveld"].split(" › ", 1)[0]
+                targets = mapping_by_source.get(root_field, [])
+                row["Gekoppeld PIM-veld"] = ", ".join(targets) or "—"
             st.dataframe(
                 pd.DataFrame(source_rows),
                 width="stretch",
                 hide_index=True,
                 column_config={
                     "Bronveld": st.column_config.TextColumn(width="medium"),
+                    "Gekoppeld PIM-veld": st.column_config.TextColumn(
+                        width="medium"
+                    ),
                     "Waarde": st.column_config.TextColumn(width="large"),
                 },
             )
@@ -2908,7 +3051,11 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
                 )
                 st.caption(image["image_url"])
         else:
-            st.info("Voor dit product zijn geen afbeeldingen opgeslagen.")
+            st.info(
+                "Voor deze exacte leveranciers-SKU is geen afbeelding "
+                "gekoppeld. Dit is geen laadfout; andere Rhodius-artikelen "
+                "kunnen wel een eigen afbeelding hebben."
+            )
     with tabs[3]:
         if not invoice_history:
             st.info("Voor dit product zijn nog geen inkoopfacturen gekoppeld.")
@@ -2941,11 +3088,19 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
                             st.caption("ERP-koppeling ontbreekt")
 
 
-def safe_description(value: str) -> str:
+def safe_description(value: str, hide_technical_specs: bool = False) -> str:
     soup = BeautifulSoup(value or "", "html.parser")
     for forbidden in soup(["script", "style", "iframe", "object", "embed", "form"]):
         forbidden.decompose()
-    allowed = {"p", "br", "strong", "b", "em", "i", "ul", "ol", "li", "h2", "h3", "h4", "table", "thead", "tbody", "tr", "th", "td", "img"}
+    if hide_technical_specs:
+        for heading in soup.find_all(["h2", "h3", "h4"]):
+            if heading.get_text(" ", strip=True).casefold() != "technische eigenschappen":
+                continue
+            following = heading.find_next_sibling()
+            if following and following.name == "dl":
+                following.decompose()
+            heading.decompose()
+    allowed = {"p", "br", "strong", "b", "em", "i", "ul", "ol", "li", "dl", "dt", "dd", "h2", "h3", "h4", "table", "thead", "tbody", "tr", "th", "td", "img"}
     for tag in soup.find_all(True):
         if tag.name not in allowed:
             tag.unwrap()
@@ -3058,10 +3213,19 @@ from app.suppliers.routes import supplier_route
 selected_route = supplier_route(selected_slug)
 st.subheader(supplier.get("name", selected_slug))
 
-overview_tab, source_tab, families_tab, products_tab, viewer_tab, shopify_tab = st.tabs(
+# De bronkolommen mogen na een import, nieuwe sessie of serverherstart niet
+# verdwijnen. Herbouw de analyse uit de lokaal bewaarde ruwe bronregels; een
+# handmatige verse bronanalyse kan deze sessiewaarde later gewoon vervangen.
+analysis_key = f"analysis_{selected_slug}"
+if not st.session_state.get(analysis_key):
+    imported_analysis = load_imported_source_analysis(selected_slug)
+    if imported_analysis:
+        st.session_state[analysis_key] = imported_analysis
+
+overview_tab, source_tab, families_tab, products_tab, viewer_tab, sales_tab, shopify_tab = st.tabs(
     [
         "Overzicht", "Bron & import", "Productfamilies", "Producten",
-        "Productviewer", "Shopify",
+        "Productviewer", "Historische verkopen", "Shopify",
     ]
 )
 
@@ -3085,6 +3249,42 @@ with overview_tab:
         )
     else:
         st.info("Voor deze leverancier is nog geen import uitgevoerd.")
+
+    catalogue_source = (
+        supplier.get("request_options", {}).get("catalogue_source") or {}
+    )
+    if supplier.get("website_url") or catalogue_source:
+        with st.expander("Verrijkingsbronnen", expanded=False):
+            if supplier.get("website_url"):
+                st.markdown(
+                    f"**Officiële productwebsite:** "
+                    f"[{supplier['website_url']}]({supplier['website_url']})"
+                )
+                st.caption(
+                    "Productkoppeling uitsluitend via exacte SKU of EAN."
+                )
+            if catalogue_source:
+                st.markdown(
+                    f"**Catalogus:** {catalogue_source.get('label') or '—'}"
+                )
+                st.code(catalogue_source.get("path") or "", language=None)
+                source_columns = st.columns(3)
+                source_columns[0].metric(
+                    "PDF-pagina’s", catalogue_source.get("pages") or 0
+                )
+                source_columns[1].metric(
+                    "Producten gekoppeld",
+                    catalogue_source.get("matched_products") or 0,
+                )
+                source_columns[2].metric(
+                    "Niet gevonden",
+                    catalogue_source.get("unmatched_products") or 0,
+                )
+                st.caption(
+                    "Koppeling: exact artikelnummer in de PDF-tekst · "
+                    f"productveld: {catalogue_source.get('page_field') or '—'} · "
+                    "PDF-pagina is gelijk aan het afgedrukte catalogusnummer."
+                )
 
     with st.expander("Database opschonen", expanded=False):
         cleanup_preview = supplier_database_cleanup_preview(selected_slug)
@@ -3133,6 +3333,165 @@ with overview_tab:
                 cleanup_missing_supplier_products(selected_slug)
             )
             st.rerun()
+
+    with st.expander("Leverancier verwijderen", expanded=False):
+        st.error(
+            "Dit verwijdert het geselecteerde leveranciersdossier, de lokale "
+            "productdata en historische verkopen uit het PIM. Shopify-producten "
+            "worden niet verwijderd. Voor herstel wordt eerst een databasearchief gemaakt."
+        )
+        delete_confirmation = st.text_input(
+            f"Typ exact {supplier['name']} om te bevestigen",
+            key=f"delete_supplier_name_{selected_slug}",
+        )
+        delete_understood = st.checkbox(
+            "Ik begrijp dat dit volledige leveranciersdossier uit het PIM verdwijnt",
+            key=f"delete_supplier_confirm_{selected_slug}",
+        )
+        if st.button(
+            "Leverancier verwijderen",
+            type="primary",
+            disabled=(
+                delete_confirmation.strip() != str(supplier["name"]).strip()
+                or not delete_understood
+            ),
+            key=f"delete_supplier_{selected_slug}",
+        ):
+            try:
+                result = delete_supplier(selected_slug)
+                st.session_state["deleted_supplier_result"] = result
+                if "supplier" in st.query_params:
+                    del st.query_params["supplier"]
+                st.rerun()
+                st.stop()
+            except Exception as exc:
+                st.error(f"Leverancier verwijderen mislukt: {exc}")
+
+with sales_tab:
+    vendor_names = tuple(selected_route.shopify_vendor_names) or (
+        str(supplier.get("name") or selected_slug),
+    )
+    st.markdown("#### Historische verkopen")
+    st.caption(
+        "Netto verkochte aantallen uit Shopify. Geannuleerde orders en "
+        "geretourneerde aantallen tellen niet mee. Shopify-herkenning: "
+        + ", ".join(vendor_names)
+    )
+    history = sales_report(selected_slug)
+    history_meta = history["meta"]
+    action_columns = st.columns([2, 2, 5])
+    update_label = (
+        "Bijwerken vanaf laatste datum" if history_meta
+        else "Volledige historie vanaf 2019 inlezen"
+    )
+    if action_columns[0].button(
+        update_label, type="primary", key=f"sales_update_{selected_slug}",
+    ):
+        try:
+            with st.spinner("Shopify-verkoop- en voorraadgegevens bijwerken…"):
+                sync_result = (
+                    incremental_sales_history_sync(selected_slug, vendor_names)
+                    if history_meta else full_sales_history_sync(selected_slug, vendor_names)
+                )
+            st.success(
+                f"Bijgewerkt ({sync_result['mode']}): "
+                f"{sync_result['orders']} orders en {sync_result['lines']} regels."
+            )
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Historische verkopen bijwerken mislukt: {exc}")
+    with action_columns[1].popover("Beheer"):
+        st.warning("Volledig opnieuw inlezen vervangt de lokale verkoophistorie.")
+        if st.button(
+            "Volledige historie opnieuw inlezen",
+            key=f"sales_full_refresh_{selected_slug}",
+        ):
+            try:
+                with st.spinner("Volledige Shopify-historie opnieuw inlezen…"):
+                    full_sales_history_sync(selected_slug, vendor_names)
+                st.success("Volledige historie opnieuw ingelezen.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Volledige synchronisatie mislukt: {exc}")
+    if history_meta:
+        action_columns[2].caption(
+            f"Beschikbaar: {history_meta['oldest_order']} t/m "
+            f"{history_meta['newest_order']} · bijgewerkt "
+            f"{_format_sync_log_datetime(history_meta['synced_at'])}"
+        )
+
+    report_rows = history["rows"]
+    search_sales = st.text_input(
+        "Zoeken op SKU of artikelnaam", key=f"sales_search_{selected_slug}",
+    ).strip().casefold()
+    if search_sales:
+        report_rows = [
+            row for row in report_rows
+            if search_sales in str(row["sku"]).casefold()
+            or search_sales in str(row["title"]).casefold()
+        ]
+    years = list(range(2019, date.today().year + 1))
+    year_records = []
+    for row in report_rows:
+        record = {"SKU": row["sku"], "Artikel": row["title"]}
+        record.update({str(year): int(row["years"].get(year, 0)) for year in years})
+        record.update({"Totaal": int(row["total"]), "Laatste verkoop": row["last_sale"] or "—"})
+        year_records.append(record)
+    st.markdown("##### Verkochte aantallen per jaar")
+    st.dataframe(pd.DataFrame(year_records), hide_index=True, width="stretch")
+
+    selected_sales_year = st.selectbox(
+        "Maandverdeling voor jaar", years, index=len(years) - 1,
+        key=f"sales_year_{selected_slug}",
+    )
+    month_names = ["Jan", "Feb", "Mrt", "Apr", "Mei", "Jun",
+                   "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"]
+    month_records = []
+    for row in report_rows:
+        record = {"SKU": row["sku"], "Artikel": row["title"]}
+        record.update({
+            label: int(row["months"].get((selected_sales_year, month), 0))
+            for month, label in enumerate(month_names, 1)
+        })
+        record["Totaal"] = sum(record[label] for label in month_names)
+        month_records.append(record)
+    month_records.sort(key=lambda item: (-item["Totaal"], item["SKU"]))
+    st.markdown(f"##### Verkochte aantallen per maand in {selected_sales_year}")
+    st.dataframe(pd.DataFrame(month_records), hide_index=True, width="stretch")
+
+    inventory_records = []
+    for row in report_rows:
+        sold_12m = int(row["sold_12m"])
+        inventory = int(row["inventory"])
+        cover = row["months_cover"]
+        if inventory < 0:
+            signal = "Negatieve voorraad"
+        elif sold_12m == 0:
+            signal = "Geen verkoop in 12 maanden" if inventory else "Geen verkoop / geen voorraad"
+        elif inventory == 0:
+            signal = "Geen voorraad"
+        elif cover is not None and cover < 2:
+            signal = "Lage voorraad"
+        elif cover is not None and cover > 12:
+            signal = "Mogelijke overvoorraad"
+        else:
+            signal = "Gezond"
+        inventory_records.append({
+            "SKU": row["sku"], "Artikel": row["title"],
+            "Voorraad Shopify": inventory, "Verkocht 12 mnd": sold_12m,
+            "Gemiddeld / maand": round(sold_12m / 12, 1),
+            "Voorraadduur (mnd)": round(cover, 1) if cover is not None else None,
+            "Signaal": signal,
+        })
+    st.markdown("##### Voorraadanalyse")
+    signal_filter = st.multiselect(
+        "Voorraadsignalen", sorted({row["Signaal"] for row in inventory_records}),
+        key=f"sales_signal_{selected_slug}",
+    )
+    if signal_filter:
+        inventory_records = [row for row in inventory_records if row["Signaal"] in signal_filter]
+    st.dataframe(pd.DataFrame(inventory_records), hide_index=True, width="stretch")
+
 
 with source_tab:
     (
@@ -3356,6 +3715,56 @@ with source_analysis_subtab:
                         f"{completed}/{total} · {kentie_job.get('message') or kentie_job.get('status')}"
                     ),
                 )
+        elif selected_slug == "rhodius-abrasives-gmbh":
+            rhodius_status = rhodius_catalogue_status()
+            rhodius_job = rhodius_status.get("job") or {}
+            rhodius_running = rhodius_job.get("status") in {"queued", "running"}
+            if rhodius_running:
+                if st.button(
+                    "Rhodius-verrijking stoppen",
+                    key="stop_rhodius_catalogue_enrichment",
+                    width="stretch",
+                    help="Stopt na de actuele cataloguspagina en bewaart de voortgang.",
+                ):
+                    stop_rhodius_catalogue_enrichment()
+                    st.warning("Rhodius-verrijking is gepauzeerd; voortgang is bewaard.")
+                    st.rerun()
+            elif rhodius_job.get("status") == "paused":
+                if st.button(
+                    "Rhodius-verrijking doorgaan",
+                    key="resume_rhodius_catalogue_enrichment",
+                    type="primary",
+                    width="stretch",
+                    help="Verwerkt alleen de nog resterende cataloguspagina's.",
+                ):
+                    resume_rhodius_catalogue_enrichment()
+                    st.success("Rhodius gaat verder vanaf de opgeslagen pagina.")
+                    st.rerun()
+            elif st.button(
+                "Rhodius-catalogus verrijken",
+                key="start_rhodius_catalogue_enrichment",
+                width="stretch",
+                disabled=rhodius_status["pending"] == 0,
+                help=(
+                    "Analyseert iedere cataloguspagina één keer en hergebruikt "
+                    "de tekst en technische eigenschappen voor exact gekoppelde SKU's."
+                ),
+            ):
+                start_rhodius_catalogue_enrichment(2)
+                st.success("Rhodius-catalogusverrijking is op de achtergrond gestart.")
+                st.rerun()
+            if rhodius_job:
+                completed = int(rhodius_job.get("completed") or 0)
+                total = max(1, int(rhodius_job.get("total") or 0))
+                st.progress(
+                    min(1.0, completed / total),
+                    text=(
+                        f"{completed}/{total} pagina's · "
+                        f"{rhodius_job.get('message') or rhodius_job.get('status')}"
+                    ),
+                )
+                if rhodius_job.get("status") == "completed_with_errors":
+                    st.warning(rhodius_job.get("message") or "Voltooid met fouten.")
         elif selected_slug == "tecweld":
             tecweld_status = tecweld_enrichment_status()
             tecweld_job = tecweld_status.get("job") or {}
@@ -3517,7 +3926,7 @@ with source_analysis_subtab:
             format_func=lambda index: (
                 "Geen selectie – eerste product gebruiken"
                 if index == -1 else
-                f"{analyzed_source.records[index].get(example_sku_field) or 'Geen SKU'}"
+                f"{source_record_sku(analyzed_source.records[index], example_sku_field) or 'Geen SKU'}"
                 f" · {source_record_product_name(analyzed_source.records[index], example_title_field, example_description_field)[:100]}"
             ),
             key=central_example_key,
@@ -3534,7 +3943,7 @@ with source_analysis_subtab:
         ]
         st.caption(
             "Actief voorbeeld: "
-            f"{selected_example_record.get(example_sku_field) or 'Geen SKU'}"
+            f"{source_record_sku(selected_example_record, example_sku_field) or 'Geen SKU'}"
             f" · {source_record_product_name(selected_example_record, example_title_field, example_description_field)}"
         )
 
@@ -4709,7 +5118,21 @@ with source_analysis_subtab:
     if analysis:
         st.success(f"{analysis.format}: {analysis.row_count} regels en {len(analysis.fields)} velden gevonden.")
         st.write("Gevonden velden:", ", ".join(analysis.fields))
-        st.dataframe(pd.DataFrame(analysis.sample), width="stretch")
+        # Arrow vereist per kolom één consistent scalair type. Bronanalyses
+        # kunnen in hetzelfde veld zowel tekst als een lijst/object bevatten
+        # (bijvoorbeeld website_enrichment); toon geneste waarden daarom als
+        # JSON zonder de onderliggende analysegegevens te wijzigen.
+        analysis_sample_rows = [
+            {
+                key: (
+                    json.dumps(value, ensure_ascii=False)
+                    if isinstance(value, (dict, list)) else value
+                )
+                for key, value in row.items()
+            }
+            for row in analysis.sample
+        ]
+        st.dataframe(pd.DataFrame(analysis_sample_rows), width="stretch")
         rule_mapping = suggest_source_field_mapping(analysis.fields)
         learned_mapping = learned_source_field_mapping(
             analysis.fields,
@@ -5551,9 +5974,15 @@ with source_sales_pricing_subtab:
         "Maak meerdere regels zoals bij inkoopprijzen. Per product wint eerst "
         "de hoogste prioriteit en daarna het meest specifieke niveau."
     )
-    with st.form(f"scoped_sales_rule_{selected_slug}"):
+    # Dit is bewust geen st.form: toepassingsniveau en rekenmethode bepalen
+    # welke invoervelden zichtbaar en actief zijn. In een form verwerkt
+    # Streamlit die wijziging pas bij opslaan, waardoor eerst een onvolledige
+    # regel kon worden aangemaakt.
+    with st.container(border=True):
         sales_name = st.text_input(
-            "Naam verkoopprijsregel", placeholder="Bijvoorbeeld Tecweld kleppen 30% marge"
+            "Naam verkoopprijsregel",
+            placeholder="Bijvoorbeeld Tecweld kleppen 30% marge",
+            key=f"new_sales_name_{selected_slug}",
         )
         sales_scope = st.radio(
             "Toepassen op", list(MATCH_FIELDS),
@@ -5567,6 +5996,7 @@ with source_sales_pricing_subtab:
             sales_match_value = st.text_input(
                 "Specifieke SKU", placeholder="Bijvoorbeeld 7812873",
                 help="Wordt bij opslaan exact tegen de actuele PIM gecontroleerd.",
+                key=f"new_sales_sku_{selected_slug}",
             ).strip()
         elif sales_available_values:
             sales_match_value = st.selectbox(
@@ -5574,31 +6004,45 @@ with source_sales_pricing_subtab:
                 key=f"sales_match_value_{selected_slug}_{sales_scope}",
             )
         else:
-            sales_match_value = st.text_input("Productgroep of categorie").strip()
+            sales_match_value = st.text_input(
+                "Productgroep of categorie",
+                key=f"new_sales_match_value_text_{selected_slug}_{sales_scope}",
+            ).strip()
         sales_form_columns = st.columns(3)
         scoped_sales_type = sales_form_columns[0].selectbox(
             "Rekenmethode", list(SALES_RULE_TYPES),
             format_func=lambda value: SALES_RULE_TYPES[value],
+            key=f"new_sales_type_{selected_slug}",
         )
         scoped_sales_value = sales_form_columns[1].number_input(
             "Vaste opslag (€)" if scoped_sales_type == "fixed_markup" else "Waarde (%)",
             min_value=0.0, max_value=100000.0 if scoped_sales_type == "fixed_markup" else 100.0,
             value=0.0 if scoped_sales_type == "none" else 20.0, step=0.5,
             disabled=scoped_sales_type == "none",
+            key=f"new_sales_value_{selected_slug}",
         )
         scoped_sales_priority = sales_form_columns[2].number_input(
             "Prioriteit", min_value=0, max_value=999, value=0, step=1,
+            key=f"new_sales_priority_{selected_slug}",
         )
-        add_scoped_sales_rule = st.form_submit_button("Verkoopprijsregel toevoegen")
+        add_scoped_sales_rule = st.button(
+            "Verkoopprijsregel toevoegen",
+            type="primary",
+            key=f"add_scoped_sales_rule_{selected_slug}",
+        )
     if add_scoped_sales_rule:
         try:
+            if not sales_name.strip():
+                raise ValueError("Geef de verkoopprijsregel eerst een naam.")
+            if scoped_sales_type == "none":
+                raise ValueError("Kies een rekenmethode en vul de waarde in.")
             if sales_scope == "sku" and not lookup_discount_product(
                 selected_slug, sales_match_value
             ):
                 raise ValueError("Deze SKU staat niet in de actuele PIM van deze leverancier.")
             save_scoped_sales_price_rule(
                 selected_slug,
-                name=sales_name or f"{MATCH_FIELDS[sales_scope]} · {SALES_RULE_TYPES[scoped_sales_type]}",
+                name=sales_name,
                 match_field=sales_scope, match_value=sales_match_value,
                 rule_type=scoped_sales_type, rule_value=float(scoped_sales_value),
                 priority=int(scoped_sales_priority),
@@ -5644,11 +6088,13 @@ with source_sales_pricing_subtab:
             )
             st.rerun()
         with st.expander("Geselecteerde verkoopprijsregel wijzigen", expanded=False):
-            with st.form(
-                f"edit_scoped_sales_{selected_slug}_{managed_sales_rule['id']}"
-            ):
+            with st.container(border=True):
                 edit_sales_name = st.text_input(
-                    "Naam", value=managed_sales_rule["name"]
+                    "Naam", value=managed_sales_rule["name"],
+                    key=(
+                        f"edit_sales_name_{selected_slug}_"
+                        f"{managed_sales_rule['id']}"
+                    ),
                 )
                 edit_sales_scope = st.radio(
                     "Toepassen op", list(MATCH_FIELDS),
@@ -5668,6 +6114,10 @@ with source_sales_pricing_subtab:
                             managed_sales_rule["match_value"]
                             if managed_sales_rule["match_field"] == "sku" else ""
                         ),
+                        key=(
+                            f"edit_sales_sku_{selected_slug}_"
+                            f"{managed_sales_rule['id']}"
+                        ),
                     ).strip()
                 elif edit_available_values:
                     current_edit_value = (
@@ -5679,17 +6129,29 @@ with source_sales_pricing_subtab:
                     edit_sales_match_value = st.selectbox(
                         "Productgroep of categorie", edit_available_values,
                         index=edit_available_values.index(current_edit_value),
+                        key=(
+                            f"edit_sales_match_value_{selected_slug}_"
+                            f"{managed_sales_rule['id']}_{edit_sales_scope}"
+                        ),
                     )
                 else:
                     edit_sales_match_value = st.text_input(
                         "Productgroep of categorie",
                         value=managed_sales_rule["match_value"],
+                        key=(
+                            f"edit_sales_match_value_text_{selected_slug}_"
+                            f"{managed_sales_rule['id']}_{edit_sales_scope}"
+                        ),
                     ).strip()
                 edit_columns = st.columns(3)
                 edit_sales_type = edit_columns[0].selectbox(
                     "Rekenmethode", list(SALES_RULE_TYPES),
                     index=list(SALES_RULE_TYPES).index(managed_sales_rule["rule_type"]),
                     format_func=lambda value: SALES_RULE_TYPES[value],
+                    key=(
+                        f"edit_sales_type_{selected_slug}_"
+                        f"{managed_sales_rule['id']}"
+                    ),
                 )
                 edit_sales_value = edit_columns[1].number_input(
                     "Vaste opslag (€)" if edit_sales_type == "fixed_markup" else "Waarde (%)",
@@ -5697,12 +6159,27 @@ with source_sales_pricing_subtab:
                     max_value=100000.0 if edit_sales_type == "fixed_markup" else 100.0,
                     value=float(managed_sales_rule["rule_value"]), step=0.5,
                     disabled=edit_sales_type == "none",
+                    key=(
+                        f"edit_sales_value_{selected_slug}_"
+                        f"{managed_sales_rule['id']}"
+                    ),
                 )
                 edit_sales_priority = edit_columns[2].number_input(
                     "Prioriteit", min_value=0, max_value=999,
                     value=int(managed_sales_rule["priority"]), step=1,
+                    key=(
+                        f"edit_sales_priority_{selected_slug}_"
+                        f"{managed_sales_rule['id']}"
+                    ),
                 )
-                save_sales_changes = st.form_submit_button("Wijzigingen opslaan")
+                save_sales_changes = st.button(
+                    "Wijzigingen opslaan",
+                    type="primary",
+                    key=(
+                        f"save_scoped_sales_changes_{selected_slug}_"
+                        f"{managed_sales_rule['id']}"
+                    ),
+                )
             if save_sales_changes:
                 try:
                     if edit_sales_scope == "sku" and not lookup_discount_product(
@@ -5734,149 +6211,50 @@ with source_sales_pricing_subtab:
             delete_sales_price_rule(selected_slug, managed_sales_rule["id"])
             st.success("Verkoopprijsregel definitief verwijderd.")
             st.rerun()
-        preview_col, apply_col = st.columns(2)
-        if preview_col.button(
-            "Alle verkoopprijsregels voorvertonen",
-            key=f"preview_scoped_sales_{selected_slug}", width="stretch",
-        ):
-            st.session_state[f"scoped_sales_preview_{selected_slug}"] = (
-                preview_sales_prices(selected_slug, limit=None)
-            )
-        scoped_preview = st.session_state.get(f"scoped_sales_preview_{selected_slug}")
-        if scoped_preview:
-            st.dataframe(pd.DataFrame(scoped_preview), hide_index=True, width="stretch")
-            confirm_scoped_apply = st.checkbox(
-                "Ik heb de voorvertoning gecontroleerd en wil deze verkoopprijzen opslaan",
-                key=f"confirm_scoped_sales_{selected_slug}",
-            )
-            if apply_col.button(
-                "Regels toepassen", type="primary", width="stretch",
-                disabled=not confirm_scoped_apply,
-                key=f"apply_scoped_sales_{selected_slug}",
-            ):
-                result = apply_sales_prices(selected_slug)
-                st.success(
-                    f"Verkoopprijzen opgeslagen: {result['updated']}; overgeslagen: {result['skipped']}."
-                )
-                st.session_state.pop(f"scoped_sales_preview_{selected_slug}", None)
-                st.rerun()
     else:
-        st.info("Nog geen specifieke verkoopprijsregels. De bestaande algemene instelling blijft actief.")
+        st.info("Nog geen verkoopprijsregels aangemaakt.")
 
     st.divider()
-    st.markdown("#### Rekenhulp en bestaande algemene instelling")
-    st.markdown("#### Verkoopprijsregel")
-    st.warning(
-        "Let op bij het combineren van verkoopprijsregels: iedere volgende "
-        "regel rekent verder met het resultaat van de vorige regel. Daardoor "
-        "kunnen korting-op-korting en meerdere toeslagen worden gestapeld. "
-        "Controleer altijd het rekenvoorbeeld en de voorvertoning."
-    )
+    st.markdown("#### Controleren en toepassen")
     st.caption(
-        "De verkoopprijs wordt berekend als bruto prijs min het ingestelde "
-        "percentage van de netto inkoopprijs. Voorbeeld: bruto € 100, netto "
-        "inkoop € 75 en 20% geeft € 100 − € 15 = € 85 verkoopprijs."
+        "Controleer eerst één artikel en daarna de volledige voorvertoning. "
+        "Bij meerdere passende regels gelden prioriteit en specificiteit; een "
+        "vaste euro-opslag kan aanvullend op een procentuele regel worden toegepast."
     )
     sales_options = supplier.get("request_options") or {}
-    sales_rule_labels = {
-        "none": "Doe niets — gebruik het leveranciersveld",
-        "discount_from_cost": "Klantkorting als percentage van netto inkoopprijs",
-        "max_discount_over_discount": "Maximale korting over onze korting",
-        "markup_on_cost": "Vaste opslag per product (%) op de netto inkoopprijs",
-        "gross_margin": "Gewenste brutomarge",
-        "fixed_markup": "Vaste opslag per product (€) op de netto inkoopprijs",
-    }
-    sales_rule_type = st.selectbox(
-        "Kies korting of toeslag",
-        list(sales_rule_labels),
-        index=list(sales_rule_labels).index(
-            sales_options.get(
-                "sales_price_rule_type", "none"
-            )
-            if sales_options.get(
-                "sales_price_rule_type", "none"
-            ) in sales_rule_labels else "none"
-        ),
-        format_func=lambda value: sales_rule_labels[value],
-        key=f"sales_rule_type_{selected_slug}",
+    sales_rule_type = str(sales_options.get("sales_price_rule_type") or "none")
+    max_sales_discount = float(
+        sales_options.get("sales_max_discount_percent", 20)
     )
-    max_sales_discount = st.number_input(
-        (
-            "Vaste opslag (€)" if sales_rule_type == "fixed_markup" else
-            "Waarde (%)"
-        ),
-        min_value=0.0,
-        max_value=100.0,
-        value=float(sales_options.get("sales_max_discount_percent", 20)),
-        step=0.5,
-        disabled=sales_rule_type == "none",
-        key=f"sales_max_discount_{selected_slug}",
+    legacy_rule_active = bool(
+        sales_options.get("sales_price_rule_enabled")
+        and sales_rule_type != "none"
     )
-    example_cost = (
-        40.0 if sales_rule_type == "max_discount_over_discount" else 75.0
+    active_scoped_sales_rules = list_sales_price_rules(
+        selected_slug, include_disabled=False
     )
-    example_gross = 100.0
-    from app.suppliers.discounts import _calculated_sales_price
-    example_sales = (
-        example_gross if sales_rule_type == "none" else
-        _calculated_sales_price(
-            example_gross, example_cost, max_sales_discount, sales_rule_type
-        ) or 0
+    pricing_calculation_active = bool(
+        active_scoped_sales_rules or legacy_rule_active
     )
-    example_discount = example_gross - example_sales
-    example_formula = {
-        "none": "Geen berekening; bestaande verkoopprijs blijft staan",
-        "discount_from_cost": (
-            f"€ {example_gross:.2f} − ({max_sales_discount:.1f}% × "
-            f"€ {example_cost:.2f})"
-        ),
-        "max_discount_over_discount": (
-            f"€ {example_gross:.2f} × (1 − (60% × "
-            f"{max_sales_discount:.1f}%))"
-        ),
-        "markup_on_cost": (
-            f"€ {example_cost:.2f} × (100% + {max_sales_discount:.1f}%)"
-        ),
-        "gross_margin": (
-            f"€ {example_cost:.2f} ÷ (100% − {max_sales_discount:.1f}%)"
-        ),
-        "fixed_markup": (
-            f"€ {example_cost:.2f} + € {max_sales_discount:.2f}"
-        ),
-    }[sales_rule_type]
-    st.markdown(
-        f"""
-        <div style="font-size:1.35rem;line-height:1.65;padding:1rem 1.2rem;
-                    margin:.75rem 0 1rem;border:2px solid #f59e0b;
-                    border-radius:.6rem;background:#fffbeb;color:#78350f">
-          <strong>Voorbeeld rekenmethode</strong><br>
-          {example_formula} =
-          <strong>verkoopprijs € {example_sales:.2f}</strong><br>
-          <span style="font-size:1.05rem">Klantkorting:
-          € {example_discount:.2f}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.info(
-        "De leveranciersregel kan direct worden opgeslagen, ook als deze "
-        "leverancier nog geen producten in de PIM heeft. Een productvoorvertoning "
-        "is alleen een latere controle en is niet vereist voor opslaan."
-    )
-    if st.button(
-        "Verkoopprijsregel direct bij leverancier opslaan",
-        key=f"save_sales_rule_config_{selected_slug}",
-        help=(
-            "Slaat de gekozen rekenmethode direct en duurzaam op. Hiervoor is "
-            "geen bronbestand of prijsvoorvertoning nodig."
-        ),
-    ):
-        save_sales_price_rule(
-            selected_slug, max_sales_discount,
-            rule_type=sales_rule_type, apply_existing=False,
+    if active_scoped_sales_rules:
+        st.success(
+            f"{len(active_scoped_sales_rules)} actieve verkoopprijsregel(s). "
+            "De oude algemene instelling wordt niet gebruikt."
         )
-        st.success("Verkoopprijsregel duurzaam bij de leverancier opgeslagen.")
-        st.rerun()
+    elif legacy_rule_active:
+        st.warning(
+            "Deze leverancier gebruikt nog de oude algemene instelling: "
+            f"{SALES_RULE_TYPES.get(sales_rule_type, sales_rule_type)} · "
+            f"{max_sales_discount:g}. Maak hierboven een regel voor "
+            "‘Alle producten’ om deze te vervangen."
+        )
+    else:
+        st.info(
+            "Er is nog geen actieve verkoopprijsregel. Maak hierboven eerst "
+            "een regel aan voordat je prijzen voorvertoont of toepast."
+        )
+
+    from app.suppliers.discounts import _calculated_sales_price
     all_actual_products = [
         product for product in list_products(selected_slug, limit=10000)
         if product.get("source_present")
@@ -5919,7 +6297,7 @@ with source_sales_pricing_subtab:
                 f"{actual_by_sku[sku].get('source_title') or actual_by_sku[sku].get('source_description') or 'geen productnaam'}"
                 + (
                     " — netto inkoopprijs ontbreekt"
-                    if sales_rule_type != "none"
+                    if pricing_calculation_active
                     and actual_by_sku[sku].get("cost_price") is None
                     else ""
                 )
@@ -5938,6 +6316,9 @@ with source_sales_pricing_subtab:
             (row for row in scoped_live_rows if str(row["SKU"]) == actual_sku),
             None,
         )
+        scoped_preview_by_sku = {
+            str(row["SKU"]): row for row in scoped_live_rows
+        }
         actual_result = (
             scoped_live_row.get("Berekende verkoopprijs")
             if scoped_live_row else
@@ -5958,7 +6339,7 @@ with source_sales_pricing_subtab:
                 f"{scoped_live_row['Verkoopprijsregel']}"
             )
         if actual_result is None:
-            if sales_rule_type == "none":
+            if not pricing_calculation_active:
                 st.info(
                     "Doe niets is geselecteerd en voor dit artikel is nog geen "
                     "bestaande verkoopprijs opgeslagen. Kies een rekenregel om "
@@ -5989,7 +6370,7 @@ with source_sales_pricing_subtab:
                   <strong>Live rekenvoorbeeld — {html.escape(actual_sku)}</strong><br>
                   Huidige productprijs: € {float(actual.get('sale_price') if actual.get('sale_price') is not None else actual_gross_price(actual) or 0):.2f}<br>
                   <strong>Resultaat: € {float(actual_result):.2f}</strong>
-                  {' — ongewijzigd' if sales_rule_type == 'none' else ''}
+                  {' — ongewijzigd' if not pricing_calculation_active else ''}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -6032,6 +6413,12 @@ with source_sales_pricing_subtab:
                     else actual_gross_price(item)
                 )
                 result_price = (
+                    (
+                        scoped_preview_by_sku.get(sku, {}).get(
+                            "Berekende verkoopprijs"
+                        )
+                    )
+                    if active_scoped_sales_rules else
                     current_price if sales_rule_type == "none" else
                     _calculated_sales_price(
                         actual_gross_price(item), item.get("cost_price"),
@@ -6054,18 +6441,37 @@ with source_sales_pricing_subtab:
                     "_eindruimte": st.column_config.TextColumn("", width=55),
                 },
             )
-        incomplete_example_products = sum(
-            1 for product in all_actual_products
+        incomplete_example_products = [
+            product for product in all_actual_products
             if actual_gross_price(product) is None
             or product.get("cost_price") is None
-        )
-        if sales_rule_type != "none" and incomplete_example_products:
-            st.caption(
-                f"{incomplete_example_products} artikelen zijn wel vindbaar, maar "
-                "missen nog een geldige bruto- of netto inkoopprijs. Bij selectie "
-                "wordt aangegeven welke prijsgrondslag ontbreekt."
-            )
-    elif sales_rule_type != "none":
+        ]
+        if pricing_calculation_active and incomplete_example_products:
+            price_on_request = 0
+            for incomplete_product in incomplete_example_products:
+                full_product = get_supplier_product(
+                    selected_slug, incomplete_product["sku"]
+                ) or {}
+                raw_price_text = json.dumps(
+                    full_product.get("raw_data") or {},
+                    ensure_ascii=False,
+                ).casefold()
+                if "op verzoek" in raw_price_text or "op aanvraag" in raw_price_text:
+                    price_on_request += 1
+            other_incomplete = len(incomplete_example_products) - price_on_request
+            if price_on_request:
+                st.info(
+                    f"Voor {price_on_request} artikelen vermeldt de leverancier "
+                    "‘prijs op verzoek’. Hiervoor kan PIM geen verkoopprijs "
+                    "berekenen; dit is geen fout in de veldkoppeling."
+                )
+            if other_incomplete:
+                st.caption(
+                    f"{other_incomplete} andere artikelen missen een numerieke "
+                    "bruto- of netto inkoopprijs. Bij selectie wordt aangegeven "
+                    "welke prijsgrondslag ontbreekt."
+                )
+    elif pricing_calculation_active:
         st.warning(
             "Er zijn nog geen artikelen met zowel een geldige bruto prijs als "
             "netto inkoopprijs. Controleer eerst de prijsvelden bij "
@@ -6074,10 +6480,8 @@ with source_sales_pricing_subtab:
     if st.button(
         "Verkoopprijzen voorvertonen",
         key=f"preview_sales_prices_{selected_slug}",
+        disabled=not (active_scoped_sales_rules or legacy_rule_active),
     ):
-        active_scoped_sales_rules = list_sales_price_rules(
-            selected_slug, include_disabled=False
-        )
         preview_rows = (
             preview_sales_prices(selected_slug, limit=None)
             if active_scoped_sales_rules else
@@ -6133,7 +6537,9 @@ with source_sales_pricing_subtab:
             sales_preview_frame, hide_index=True, width="stretch",
             column_config={
                 "Bruto prijs": st.column_config.NumberColumn(format="€ %.2f"),
-                "Netto inkoopprijs": st.column_config.NumberColumn(format="€ %.2f"),
+                "Netto inkoopprijs / kostprijs": st.column_config.NumberColumn(
+                    format="€ %.2f"
+                ),
                 "Onze korting": st.column_config.NumberColumn(format="€ %.2f"),
                 "Ingestelde waarde %": st.column_config.NumberColumn(format="%.2f %%"),
                 "Klantkorting %": st.column_config.NumberColumn(format="%.2f %%"),
@@ -6148,7 +6554,7 @@ with source_sales_pricing_subtab:
             key=f"confirm_sales_prices_{selected_slug}",
         )
         if st.button(
-            "Verkoopprijsregel opslaan en toepassen",
+            "Voorvertoonde verkoopprijzen toepassen",
             type="primary", disabled=not confirm_sales_prices,
             key=f"apply_sales_prices_{selected_slug}",
         ):
@@ -7891,10 +8297,24 @@ with viewer_tab:
             f"{row['source_title'] or 'Naamloos product'} · {row['sku']}": row["sku"]
             for row in matches
         }
+        viewer_product_key = f"viewer_product_{selected_slug}"
+        viewer_query_key = f"viewer_product_query_{selected_slug}"
+        if st.session_state.get(viewer_query_key) != search_query:
+            exact_label = next(
+                (
+                    label for label, sku in labels.items()
+                    if sku.casefold() == search_query.strip().casefold()
+                ),
+                None,
+            )
+            st.session_state[viewer_product_key] = (
+                exact_label or next(iter(labels))
+            )
+            st.session_state[viewer_query_key] = search_query
         chosen_label = st.selectbox(
             "Product",
             list(labels),
-            key=f"viewer_product_{selected_slug}",
+            key=viewer_product_key,
         )
         product = get_supplier_product(selected_slug, labels[chosen_label])
     else:
@@ -7915,6 +8335,15 @@ with viewer_tab:
             if product.get("sale_price") is not None
             else product.get("price")
         )
+        certilas_cost_price = (
+            float(product.get("cost_price") or 0)
+            if selected_slug == "certilas" else 0.0
+        )
+        uses_certilas_minimum_price = bool(
+            display_price is None and certilas_cost_price > 0
+        )
+        if uses_certilas_minimum_price:
+            display_price = round(certilas_cost_price * 1.41, 2)
         uses_gross_price = (
             product.get("sale_price") is None
             and product.get("price") is not None
@@ -7964,8 +8393,22 @@ with viewer_tab:
                         "Standaardverkoopprijs: brutoprijs (geen aparte "
                         "verkoopprijsregel toegepast)."
                     )
+                elif uses_certilas_minimum_price:
+                    st.caption(
+                        "Minimale verkoopprijs op basis van de kostprijs × 1,41; "
+                        "nog niet als verkoopprijs opgeslagen."
+                    )
             with details_column:
-                if st.button(
+                if (
+                    selected_slug == "certilas"
+                    and float(product.get("cost_price") or 0) > 0
+                ):
+                    with st.popover(
+                        "👁",
+                        help="Berekening minimale verkoopprijs bekijken",
+                    ):
+                        render_certilas_minimum_sales_price(product)
+                elif st.button(
                     "👁",
                     key=(
                         f"purchase_price_details_{selected_slug}_"
@@ -7998,10 +8441,21 @@ with viewer_tab:
         raw = product.get("raw_data") or {}
         website_import = raw.get("website_import") or {}
         feature_icons = website_import.get("feature_icons") or []
+        technical_specifications = (
+            website_import.get("technical_specifications") or {}
+            or (raw.get("catalogue_enrichment") or {}).get("properties")
+            or {}
+        )
         description = product.get("html_description") or product.get("source_description") or ""
         st.markdown("<div class='ws-section'><h2>Productomschrijving</h2></div>", unsafe_allow_html=True)
         if description:
-            st.markdown(safe_description(description), unsafe_allow_html=True)
+            st.markdown(
+                safe_description(
+                    description,
+                    hide_technical_specs=bool(technical_specifications),
+                ),
+                unsafe_allow_html=True,
+            )
         else:
             st.info("Nog geen productomschrijving beschikbaar.")
 
@@ -8025,6 +8479,69 @@ with viewer_tab:
                             f"{html.escape(label)}</div>",
                             unsafe_allow_html=True,
                         )
+
+        if technical_specifications:
+            specification_items = (
+                technical_specifications.items()
+                if isinstance(technical_specifications, dict)
+                else (
+                    (item.get("name") or item.get("label") or "Eigenschap",
+                     item.get("value") or item.get("waarde") or "—")
+                    for item in technical_specifications
+                    if isinstance(item, dict)
+                )
+            )
+            specification_rows = []
+            variant_rows = []
+            for label, value in specification_items:
+                if value in (None, "", [], {}):
+                    continue
+                if (
+                    str(label).strip().casefold() == "varianten"
+                    and isinstance(value, list)
+                    and all(isinstance(item, dict) for item in value)
+                ):
+                    variant_rows = value
+                    continue
+                display_label = str(label).replace("_", " ").strip()
+                display_label = display_label[:1].upper() + display_label[1:]
+                rendered_value = (
+                    ", ".join(str(part) for part in value)
+                    if isinstance(value, list)
+                    else json.dumps(value, ensure_ascii=False)
+                    if isinstance(value, dict)
+                    else str(value)
+                )
+                specification_rows.append(
+                    "<div class='ws-spec-row'>"
+                    f"<dt class='ws-spec-label'>{html.escape(display_label)}</dt>"
+                    f"<dd class='ws-spec-value'>{html.escape(rendered_value)}</dd>"
+                    "</div>"
+                )
+            if specification_rows or variant_rows:
+                st.markdown(
+                    "<div class='ws-section'><h2>Technische eigenschappen</h2>"
+                    "<p style='color:#6b6b6b;margin-top:-.35rem'>"
+                    "Productspecificaties van de officiële leveranciersbron.</p>"
+                    "</div>"
+                    + (
+                        "<dl class='ws-specs'>"
+                        + "".join(specification_rows)
+                        + "</dl>"
+                        if specification_rows else ""
+                    ),
+                    unsafe_allow_html=True,
+                )
+                if variant_rows:
+                    st.markdown("##### Varianten")
+                    variant_frame = pd.DataFrame(variant_rows).rename(
+                        columns=lambda column: str(column).replace("_", " ").strip()
+                    )
+                    st.dataframe(
+                        variant_frame,
+                        width="stretch",
+                        hide_index=True,
+                    )
 
         detail_fields = {
             "Producttype": product.get("product_type"),

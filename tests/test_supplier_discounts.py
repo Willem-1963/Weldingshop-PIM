@@ -180,3 +180,49 @@ def test_markup_on_cost_does_not_require_a_gross_supplier_price(
     row = discounts.preview_sales_prices("harder-lastechniek", limit=None)[0]
 
     assert row["Berekende verkoopprijs"] == 14.1
+
+
+def test_certilas_alloy_surcharge_is_part_of_cost_and_column_order(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "certilas.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """CREATE TABLE products(
+               sku TEXT PRIMARY KEY,source_title TEXT,product_type TEXT,
+               category TEXT,category_full TEXT,price REAL,cost_price REAL,
+               sale_price REAL,gross_purchase_price_per_kg REAL,
+               kg_per_sales_unit REAL,source_present INTEGER,updated_at TEXT
+           )"""
+    )
+    connection.execute(
+        "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("CERT-1", "Lasdraad", "", "", "", 100, 60, None,
+         None, None, 1, "now"),
+    )
+    connection.execute(
+        """CREATE TABLE product_price_components(
+               main_sku TEXT,component_type TEXT,surcharge_total REAL,
+               base_net_price REAL,effective_gross_price REAL,
+               effective_net_price REAL,base_sales_price REAL,status TEXT
+           )"""
+    )
+    connection.execute(
+        "INSERT INTO product_price_components VALUES(?,?,?,?,?,?,?,?)",
+        ("CERT-1", "alloy_surcharge", 5, 60, 105, 65, 100, "ready"),
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(discounts, "init_supplier_database", lambda _slug: database)
+    monkeypatch.setattr(discounts, "get_supplier", lambda _slug: {"request_options": {}})
+    discounts.save_scoped_sales_price_rule(
+        "certilas", name="10 procent", match_field="all", match_value="",
+        rule_type="markup_on_cost", rule_value=10,
+    )
+
+    row = discounts.preview_sales_prices("certilas", limit=None)[0]
+
+    assert list(row).index("Legeringstoeslag") == list(row).index("Bruto prijs") + 1
+    assert row["Legeringstoeslag"] == 5
+    assert row["Netto inkoopprijs / kostprijs"] == 65
+    assert row["Berekende verkoopprijs"] == 71.5

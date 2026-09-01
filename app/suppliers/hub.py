@@ -880,7 +880,10 @@ def _compose_source_fields(
         if not field or value in (None, ""):
             continue
         parts.append({
-            "label": str(item.get("label") or field).strip(),
+            "label": str(
+                item.get("label", field)
+                if item.get("label", field) is not None else ""
+            ).strip(),
             "value": str(value).strip(),
             "unit": str(item.get("unit") or "").strip(),
         })
@@ -945,7 +948,7 @@ def _compose_source_fields(
         return f"{result} {unit}".strip()
     if output_format == "html_list":
         rows = "".join(
-            f"<li><strong>{html.escape(part['label'])}:</strong> "
+            f"<li>{('<strong>' + html.escape(part['label']) + ':</strong> ') if part['label'] else ''}"
             f"{html.escape(part['value'])}"
             f"{(' ' + html.escape(part['unit'])) if part['unit'] else ''}"
             "</li>"
@@ -968,7 +971,7 @@ def _compose_source_fields(
         )
         prefix = f"{symbol} " if symbol else ""
         return "\n".join(
-            f"{prefix}{part['label']}: {part['value']}"
+            f"{prefix}{(part['label'] + ': ') if part['label'] else ''}{part['value']}"
             f"{(' ' + part['unit']) if part['unit'] else ''}"
             for part in parts
         )
@@ -977,7 +980,7 @@ def _compose_source_fields(
         if output_format == "text" else "\n"
     )
     return separator.join(
-        f"{part['label']}: {part['value']}"
+        f"{(part['label'] + ': ') if part['label'] else ''}{part['value']}"
         f"{(' ' + part['unit']) if part['unit'] else ''}"
         for part in parts
     )
@@ -1639,6 +1642,69 @@ class SourceAnalysis:
     records: list[dict[str, Any]]
 
 
+def load_imported_source_analysis(
+    slug: str, *, record_limit: int | None = None,
+) -> SourceAnalysis | None:
+    """Herbouw de bronkolommen uit de laatst opgeslagen ruwe productregels.
+
+    De volledige bron hoeft hierdoor niet opnieuw gedownload te worden om na
+    een import veldkoppelingen te bekijken of te wijzigen. Alle productregels
+    dragen bij aan de veldlijst; alleen een begrensde set wordt als voorbeeld
+    in Streamlit geladen. Standaard worden alle opgeslagen productregels
+    geladen, zodat iedere SKU in de voorbeeld- en bewerkingsregelzoekers
+    vindbaar blijft. Een expliciete ``record_limit`` kan worden gebruikt door
+    aanroepers die alleen een beperkte voorbeeldset nodig hebben.
+    """
+    path = supplier_database_path(slug)
+    if not path.is_file():
+        return None
+    fields: list[str] = []
+    known_fields: set[str] = set()
+    records: list[dict[str, Any]] = []
+    row_count = 0
+    with _connect(path) as conn:
+        rows = conn.execute(
+            """SELECT sku,source_title,source_description,raw_data_json FROM products
+               WHERE raw_data_json IS NOT NULL AND TRIM(raw_data_json) NOT IN ('','{}')
+               ORDER BY source_present DESC,updated_at DESC"""
+        )
+        for row in rows:
+            try:
+                record = json.loads(row["raw_data_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            # Interne herkenningswaarden zijn uitsluitend bedoeld om producten
+            # in voorbeeldkiezers herkenbaar te tonen. Ze worden bewust niet
+            # aan ``fields`` toegevoegd en zijn dus geen koppelbare bronvelden.
+            record["__pim_sku"] = str(row["sku"] or "").strip()
+            record["__pim_title"] = str(row["source_title"] or "").strip()
+            record["__pim_description"] = str(
+                row["source_description"] or ""
+            ).strip()
+            row_count += 1
+            for field in record:
+                if field.startswith("__pim_"):
+                    continue
+                field_name = str(field)
+                if field_name not in known_fields:
+                    known_fields.add(field_name)
+                    fields.append(field_name)
+            if record_limit is None or len(records) < max(1, int(record_limit)):
+                records.append(record)
+    if not row_count or not fields:
+        return None
+    return SourceAnalysis(
+        format="Opgeslagen PIM-import",
+        row_count=row_count,
+        fields=fields,
+        sample=records[:10],
+        raw_bytes=b"",
+        records=records,
+    )
+
+
 def _xml_element_value(element: ET.Element) -> Any:
     children = list(element)
     if not children:
@@ -2044,10 +2110,10 @@ SOURCE_FIELD_ALIASES = {
     },
     "ean": {
         "ean", "eancode", "barcode", "barcodenumber", "gtin", "gtin13",
-        "ean13",
+        "ean13", "gtincode",
     },
     "title": {
-        "title", "name", "productname", "producttitle", "articleName",
+        "title", "name", "productname", "productnaam", "producttitle", "articleName",
         "articlename", "omschrijving", "description", "designation",
         "titlenl",
     },
@@ -2058,7 +2124,7 @@ SOURCE_FIELD_ALIASES = {
     },
     "price": {
         "price", "listprice", "grossprice", "brutoprijs", "catalogprice",
-        "adviesprijs", "prijs", "priceexvat",
+        "adviesprijs", "prijs", "priceexvat", "brutoprijs2026",
     },
     "sale_price": {
         "saleprice", "sellingprice", "retailprice", "consumerprice",
@@ -2066,13 +2132,14 @@ SOURCE_FIELD_ALIASES = {
     },
     "cost_price": {
         "costprice", "purchaseprice", "netpurchaseprice",
-        "inkoopprijs", "specialpriceexvat",
+        "inkoopprijs", "specialpriceexvat", "nettoprijs",
     },
     "weight": {
         "weight", "weightkg", "weightgrams", "gewicht", "gewichtkg",
     },
     "weight_kg": {
         "packweight", "shippingweightkg", "verzendgewichtkg",
+        "gewichtinkgstuk",
     },
     "primary_image": {
         "primaryimage", "mainimage", "mainimageurl", "hoofdafbeelding",
@@ -2082,7 +2149,8 @@ SOURCE_FIELD_ALIASES = {
         "beschikbaar", "available",
     },
     "product_type": {
-        "producttype", "articlegroup", "productgroup", "artikelgroep",
+        "producttype", "productsoort", "articlegroup", "productgroup",
+        "artikelgroep",
     },
     "category": {"category", "categorie", "productcategory"},
     "category_full": {
@@ -2169,7 +2237,16 @@ def suggest_source_field_mapping(fields: Iterable[Any]) -> dict[str, str]:
         "weight_kg": ["packweight", "shippingweightkg"],
     }
     for target, aliases in SOURCE_FIELD_ALIASES.items():
-        ordered_aliases = preferred_aliases.get(target, sorted(aliases))
+        preferred = preferred_aliases.get(target, [])
+        ordered_aliases = [
+            *preferred,
+            *sorted(
+                alias for alias in aliases
+                if _normalized_field_name(alias) not in {
+                    _normalized_field_name(item) for item in preferred
+                }
+            ),
+        ]
         for alias in ordered_aliases:
             matches = [
                 field for field in by_normalized.get(
@@ -3308,6 +3385,90 @@ def supplier_stats(slug: str) -> dict[str, int]:
     return result
 
 
+def delete_supplier(slug: str) -> dict[str, Any]:
+    """Archiveer en verwijder één lokaal PIM-leveranciersdossier.
+
+    Shopify wordt nooit aangeroepen of gewijzigd. Actieve achtergrondtaken
+    blokkeren de verwijdering om half verwijderde dossiers te voorkomen.
+    """
+    supplier = get_supplier(slug)
+    if not supplier:
+        raise ValueError(f"Onbekende leverancier: {slug}")
+    path = supplier_database_path(slug)
+    init_registry()
+    with _connect(REGISTRY_PATH) as conn:
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        for table in (
+            "sync_jobs", "catalogue_enrichment_jobs",
+            "supplier_enrichment_recovery_jobs",
+        ):
+            if table not in tables:
+                continue
+            active = conn.execute(
+                f"""SELECT COUNT(*) FROM {table}
+                    WHERE supplier_slug=? AND status IN ('queued','running','stopping')""",
+                (slug,),
+            ).fetchone()[0]
+            if active:
+                raise ValueError(
+                    "Leverancier kan niet worden verwijderd zolang een "
+                    "synchronisatie of verrijking actief is."
+                )
+
+    archive_dir = EXPORT_DIR / slug / "deleted-supplier"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / (
+        f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{path.name}"
+    )
+    if path.is_file():
+        with sqlite3.connect(path) as source, sqlite3.connect(archive_path) as target:
+            source.backup(target)
+
+    try:
+        with _connect(REGISTRY_PATH) as conn:
+            tables = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if (
+                "supplier_enrichment_recovery_items" in tables
+                and "supplier_enrichment_recovery_jobs" in tables
+            ):
+                conn.execute(
+                    """DELETE FROM supplier_enrichment_recovery_items WHERE job_id IN (
+                       SELECT id FROM supplier_enrichment_recovery_jobs
+                       WHERE supplier_slug=?)""", (slug,),
+                )
+            for table in (
+                "sync_jobs", "catalogue_enrichment_jobs",
+                "supplier_enrichment_recovery_jobs",
+            ):
+                if table in tables:
+                    conn.execute(
+                        f"DELETE FROM {table} WHERE supplier_slug=?", (slug,)
+                    )
+            deleted = conn.execute(
+                "DELETE FROM suppliers WHERE slug=?", (slug,)
+            ).rowcount
+            if deleted != 1:
+                raise RuntimeError("Leveranciersrecord kon niet exact worden verwijderd")
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
+
+    for candidate in (path, Path(f"{path}-wal"), Path(f"{path}-shm")):
+        candidate.unlink(missing_ok=True)
+    return {
+        "slug": slug, "name": supplier["name"],
+        "archive": str(archive_path) if archive_path.is_file() else "",
+    }
+
+
 def supplier_database_cleanup_preview(slug: str) -> dict[str, int]:
     path = init_supplier_database(slug)
     with _connect(path) as conn:
@@ -3552,10 +3713,11 @@ def search_supplier_products(slug: str, query: str = "", limit: int = 100) -> li
             SELECT sku,source_title,price,sale_price,available,source_present
             FROM products
             WHERE ?='' OR sku LIKE ? OR source_title LIKE ? OR ean LIKE ?
-            ORDER BY source_present DESC, source_title COLLATE NOCASE, sku
+            ORDER BY CASE WHEN UPPER(sku)=UPPER(?) THEN 0 ELSE 1 END,
+                     source_present DESC, source_title COLLATE NOCASE, sku
             LIMIT ?
             """,
-            (query.strip(), pattern, pattern, pattern, limit),
+            (query.strip(), pattern, pattern, pattern, query.strip(), limit),
         ).fetchall()
     return [dict(row) for row in rows]
 

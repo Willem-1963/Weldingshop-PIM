@@ -60,9 +60,21 @@ def metafields_by_key(product):
 
 
 def test_certilas_bundle_metafields_and_notice_follow_pim_formula():
-    fields = metafields_by_key(certilas_product())
+    product = certilas_product()
+    product.update({
+        "gross_purchase_price_per_kg": 90.57,
+        "net_purchase_price_per_kg": 27.17,
+        "kg_per_sales_unit": 2.5,
+        "cost_price": 84.025,
+        "_raw_data": {
+            **product["_raw_data"],
+            "Discount": "70.0%",
+        },
+    })
+    fields = metafields_by_key(product)
 
     assert fields["verplichte_bundel"]["value"] == "true"
+    assert fields["certilas_product"] == {"namespace": "custom", "key": "certilas_product", "type": "boolean", "value": "true"}
     assert fields["verpakkingen_per_bundel"]["value"] == "6"
     assert fields["kg_per_verpakking"]["value"] == "2.4"
     assert fields["kg_per_bundel"]["value"] == "14.4"
@@ -72,6 +84,11 @@ def test_certilas_bundle_metafields_and_notice_follow_pim_formula():
         "6 verpakkingen à 2,4 kg. Totaalgewicht 14,4 kg. "
         "Prijs per verpakking €250,69."
     )
+    assert fields["inkoop_brutoprijs"]["value"] == "226.425"
+    assert fields["inkoop_korting_percentage"]["value"] == "70"
+    assert fields["inkoop_netto_prijs"]["value"] == "67.925"
+    assert fields["inkoop_legeringstoeslag"]["value"] == "16.1"
+    assert fields["inkoop_verpakkingsgewicht"]["value"] == "2.5"
 
 
 def test_certilas_missing_bundle_clears_bundle_only_fields():
@@ -88,6 +105,7 @@ def test_certilas_missing_bundle_clears_bundle_only_fields():
 def test_price_only_rows_also_persist_certilas_bundle_fields():
     product = certilas_product()
     product["sku"] = "50620"
+    product["cost_price"] = 84.025
     existing = {
         "50620": {
             "product": {"id": "gid://shopify/Product/1"},
@@ -99,10 +117,12 @@ def test_price_only_rows_also_persist_certilas_bundle_fields():
 
     variant = rows[0]["variants"][0]
     assert variant["price"] == "1504.14"
+    assert variant["inventoryItem"] == {"cost": "84.03"}
     assert {item["key"] for item in variant["metafields"]} == {
         "verplichte_bundel", "verpakkingen_per_bundel",
         "kg_per_verpakking", "kg_per_bundel", "prijs_per_verpakking",
-        "minimale_afname",
+        "minimale_afname", "inkoop_verpakkingsgewicht",
+        "certilas_product",
     }
 
 

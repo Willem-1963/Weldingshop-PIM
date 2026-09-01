@@ -424,7 +424,9 @@ def preview_sales_prices(
         if route.applies_alloy_surcharges and component_table:
             surcharge_by_sku = {
                 row["main_sku"]: dict(row) for row in conn.execute(
-                    """SELECT main_sku,surcharge_total,base_sales_price,status
+                    """SELECT main_sku,surcharge_total,base_net_price,
+                              effective_gross_price,effective_net_price,
+                              base_sales_price,status
                        FROM product_price_components
                        WHERE component_type='alloy_surcharge'"""
                 ).fetchall()
@@ -448,11 +450,24 @@ def preview_sales_prices(
                 float(product["gross_purchase_price_per_kg"])
                 * float(product["kg_per_sales_unit"]), 2
             )
-        cost = product.get("cost_price")
+        base_cost = product.get("cost_price")
         component = surcharge_by_sku.get(product["sku"]) or {}
         surcharge = (
             float(component.get("surcharge_total") or 0)
             if component.get("status") == "ready" else 0.0
+        )
+        cost = (
+            component.get("effective_net_price")
+            if component.get("status") == "ready"
+            and component.get("effective_net_price") is not None
+            else base_cost
+        )
+        effective_gross = (
+            component.get("effective_gross_price")
+            if component.get("status") == "ready"
+            and component.get("effective_gross_price") is not None
+            else round(float(gross) + surcharge, 2)
+            if gross is not None else None
         )
         current_base = component.get("base_sales_price")
         if current_base is None and product.get("sale_price") is not None:
@@ -479,35 +494,44 @@ def preview_sales_prices(
             )
         if underlying_rule:
             underlying_base = _calculated_sales_price(
-                gross, cost, float(underlying_rule["rule_value"]),
+                effective_gross, cost, float(underlying_rule["rule_value"]),
                 underlying_rule["rule_type"],
             )
-            calculated_base = (
+            calculated = (
                 round(float(underlying_base) + effective_value, 2)
                 if underlying_base is not None else None
             )
         else:
-            calculated_base = (
+            calculated = (
                 None if scoped_rules and not applied_rule else
-                current_base if effective_type == "none" else
-                _calculated_sales_price(gross, cost, effective_value, effective_type)
+                round(float(current_base) + surcharge, 2)
+                if effective_type == "none" and current_base is not None else
+                _calculated_sales_price(
+                    effective_gross, cost, effective_value, effective_type
+                )
             )
-        calculated = (
-            round(float(calculated_base) + surcharge, 2)
-            if calculated_base is not None else None
+        calculated_base = (
+            round(float(calculated) - surcharge, 2)
+            if calculated is not None else None
         )
         customer_discount = (
-            round(float(gross) - float(calculated_base), 2)
-            if calculated_base is not None and gross is not None else None
+            round(float(effective_gross) - float(calculated), 2)
+            if calculated is not None and effective_gross is not None else None
         )
         preview_row = {
             "SKU": product["sku"],
             "Product": product.get("source_title") or "",
             "Bruto prijs": gross,
-            "Netto inkoopprijs": cost,
+        }
+        # Bij Certilas is de legeringstoeslag zowel een inkoop- als een
+        # verkoopcomponent. Toon hem direct naast de bruto basisprijs.
+        if route.applies_alloy_surcharges:
+            preview_row["Legeringstoeslag"] = surcharge or None
+        preview_row.update({
+            "Netto inkoopprijs / kostprijs": cost,
             "Onze korting": (
-                round(float(gross) - float(cost), 2)
-                if gross is not None and cost is not None else None
+                round(float(effective_gross) - float(cost), 2)
+                if effective_gross is not None and cost is not None else None
             ),
             "Verkoopprijsregel": (
                 f"{underlying_rule['name']} + {applied_rule['name']}"
@@ -518,20 +542,18 @@ def preview_sales_prices(
             "Rekenmethode": SALES_RULE_TYPES.get(effective_type, effective_type),
             "Ingestelde waarde %": effective_value if (applied_rule or not scoped_rules) else None,
             "Klantkorting %": (
-                round((float(gross) - float(calculated_base)) / float(gross) * 100, 2)
-                if gross is not None and calculated_base is not None
-                and float(gross) > 0 else None
+                round(
+                    (float(effective_gross) - float(calculated))
+                    / float(effective_gross) * 100, 2
+                )
+                if effective_gross is not None and calculated is not None
+                and float(effective_gross) > 0 else None
             ),
             "Klantkorting": customer_discount,
             "Berekende basisverkoopprijs": calculated_base,
             "Berekende verkoopprijs": calculated,
             "Huidige verkoopprijs": product.get("sale_price"),
-        }
-        # Legeringstoeslag is een exclusieve Certilas-prijscomponent. Laat de
-        # kolom bij andere leveranciers volledig weg in plaats van overal een
-        # lege, verwarrende Certilas-kolom te tonen.
-        if route.applies_alloy_surcharges:
-            preview_row["Legeringstoeslag"] = surcharge or None
+        })
         result.append(preview_row)
     return result
 

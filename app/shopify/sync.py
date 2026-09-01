@@ -1490,6 +1490,34 @@ def _certilas_bundle_metafields(
     except (TypeError, ValueError):
         package_price = 0
 
+    gross_per_kg = product.get("gross_purchase_price_per_kg")
+    net_per_kg = product.get("net_purchase_price_per_kg")
+    cost_price = product.get("cost_price")
+    purchase_weight = product.get("kg_per_sales_unit") or unit_weight
+    try:
+        gross_total = float(gross_per_kg) * float(purchase_weight)
+        net_total = float(net_per_kg) * float(purchase_weight)
+        discount_percent = (1 - float(net_per_kg) / float(gross_per_kg)) * 100
+    except (TypeError, ValueError, ZeroDivisionError):
+        gross_total = net_total = discount_percent = 0
+    raw_pricing = product.get("_raw_data")
+    if not isinstance(raw_pricing, dict):
+        try:
+            raw_pricing = json.loads(product.get("raw_data_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw_pricing = {}
+    try:
+        source_discount = float(
+            str(raw_pricing.get("Discount") or "").strip().rstrip("%").replace(",", ".")
+        )
+        discount_percent = source_discount
+    except (TypeError, ValueError):
+        pass
+    try:
+        alloy_surcharge = max(0, float(cost_price) - net_total)
+    except (TypeError, ValueError):
+        alloy_surcharge = 0
+
     def decimal_text(value: float) -> str:
         return f"{value:.6f}".rstrip("0").rstrip(".")
 
@@ -1497,6 +1525,7 @@ def _certilas_bundle_metafields(
         return decimal_text(value).replace(".", ",")
 
     values: dict[str, tuple[str, str | None]] = {
+        "certilas_product": ("boolean", "true"),
         "verplichte_bundel": ("boolean", "true" if quantity else "false"),
         "verpakkingen_per_bundel": (
             "number_integer", str(quantity) if quantity else None,
@@ -1509,6 +1538,24 @@ def _certilas_bundle_metafields(
         ),
         "prijs_per_verpakking": (
             "number_decimal", f"{package_price:.2f}" if package_price > 0 else None,
+        ),
+        "inkoop_brutoprijs": (
+            "number_decimal", decimal_text(gross_total) if gross_total > 0 else None,
+        ),
+        "inkoop_korting_percentage": (
+            "number_decimal",
+            decimal_text(discount_percent) if gross_total > 0 else None,
+        ),
+        "inkoop_netto_prijs": (
+            "number_decimal", decimal_text(net_total) if net_total > 0 else None,
+        ),
+        "inkoop_legeringstoeslag": (
+            "number_decimal",
+            decimal_text(alloy_surcharge) if net_total > 0 and alloy_surcharge > 0 else None,
+        ),
+        "inkoop_verpakkingsgewicht": (
+            "number_decimal",
+            decimal_text(float(purchase_weight)) if purchase_weight else None,
         ),
         "minimale_afname": (
             "single_line_text_field",
@@ -2189,11 +2236,11 @@ def _price_only_variant_rows(
     products: list[dict[str, Any]],
     existing: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Build minimal Shopify mutations that cannot rewrite product content.
+    """Build minimal Shopify price/cost mutations without rewriting content.
 
     Deliberately update variants through ``productVariantsBulkUpdate`` instead
     of ``productSet``. Omitting fields from this input preserves families,
-    options, titles, descriptions, media, tags, status and inventory.
+    options, titles, descriptions, media, tags, status and stock quantities.
     """
     variants_by_product: dict[str, list[dict[str, Any]]] = {}
     for product in products:
@@ -2207,6 +2254,18 @@ def _price_only_variant_rows(
         }
         if price is not None and price > 0:
             variant["price"] = f"{price:.2f}"
+        # Een prijsupdate moet ook de actuele PIM-kostprijs doorzetten. Dit is
+        # vooral belangrijk voor Certilas: cost_price bevat daar de netto
+        # inkoopprijs inclusief de door ons te betalen legeringstoeslag.
+        if product.get("cost_price") is not None:
+            variant["inventoryItem"] = {
+                "cost": f"{float(product['cost_price']):.2f}",
+            }
+        mapped_cost = _mapped(product, "inventory.cost")
+        if mapped_cost not in (None, ""):
+            variant["inventoryItem"] = {
+                "cost": f"{float(mapped_cost):.2f}",
+            }
         bundle_metafields = _certilas_bundle_metafields(product)
         if bundle_metafields:
             variant["metafields"] = bundle_metafields

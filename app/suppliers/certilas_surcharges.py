@@ -94,14 +94,14 @@ def apply_certilas_alloy_surcharge_bundles(
         )
         stats["relations"] += 1
         if status == "ready":
-            # Inkoopvelden blijven de zuivere basis. Alleen de klantprijs krijgt
-            # het ZZ-component zonder marge als laatste stap toegevoegd.
+            # De ZZ-toeslag betalen we ook aan de leverancier en hoort daarom
+            # in de effectieve kostprijs van het verkoopartikel.
             connection.execute(
                 """UPDATE products SET gross_purchase_price_per_kg=?,
                    net_purchase_price_per_kg=?,sale_price=?,cost_price=?,updated_at=?
                    WHERE sku=?""",
                 (base_gross_per_kg, base_net_per_kg, round(effective_sales, 2),
-                 round(base_net, 2), updated_at, main_sku),
+                 round(effective_net, 2), updated_at, main_sku),
             )
             stats["applied"] += 1
         else:

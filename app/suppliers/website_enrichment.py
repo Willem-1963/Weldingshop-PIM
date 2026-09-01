@@ -71,11 +71,20 @@ def _merge_welding_position_icons(
     return str(soup)
 
 
+def _numeric_enrichment_version(value: Any) -> int:
+    """Return a numeric AI version; legacy provenance labels are version 0."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _has_current_dutch_enrichment(item: dict[str, Any]) -> bool:
     enrichment = (item.get("current_raw_data") or {}).get("website_enrichment") or {}
     return (
         enrichment.get("language") == "nl"
-        and int(enrichment.get("enrichment_version") or 0) >= ENRICHMENT_VERSION
+        and _numeric_enrichment_version(enrichment.get("enrichment_version"))
+        >= ENRICHMENT_VERSION
     )
 
 
