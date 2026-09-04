@@ -116,6 +116,45 @@ def test_scoped_sales_rule_prefers_specific_sku(tmp_path, monkeypatch):
     assert changed["7812873"]["Berekende verkoopprijs"] == 80
 
 
+def test_specific_sku_can_have_a_fixed_sales_price(tmp_path, monkeypatch):
+    database = tmp_path / "supplier.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """CREATE TABLE products(
+               sku TEXT PRIMARY KEY,source_title TEXT,product_type TEXT,
+               category TEXT,category_full TEXT,price REAL,cost_price REAL,
+               sale_price REAL,gross_purchase_price_per_kg REAL,
+               kg_per_sales_unit REAL,source_present INTEGER,updated_at TEXT
+           )"""
+    )
+    connection.execute(
+        "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("VAST-1", "Artikel met vaste prijs", "", "", "", 150, None,
+         120, None, None, 1, "now"),
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(discounts, "init_supplier_database", lambda _slug: database)
+    monkeypatch.setattr(discounts, "get_supplier", lambda _slug: {"request_options": {}})
+
+    discounts.save_scoped_sales_price_rule(
+        "leverancier", name="Vaste artikelprijs", match_field="sku",
+        match_value="VAST-1", rule_type="fixed_price", rule_value=129.95,
+    )
+
+    row = discounts.preview_sales_prices("leverancier", limit=None)[0]
+
+    assert row["Berekende verkoopprijs"] == 129.95
+    assert row["Rekenmethode"] == "Vaste verkoopprijs (€)"
+    assert row["Ingestelde waarde"] == 129.95
+
+
+def test_fixed_sales_price_does_not_require_a_cost_price():
+    assert discounts._calculated_sales_price(
+        gross=None, cost=None, value=42.50, rule_type="fixed_price"
+    ) == 42.50
+
+
 def test_none_sales_rule_uses_regular_supplier_price_as_fallback(
     tmp_path, monkeypatch,
 ):

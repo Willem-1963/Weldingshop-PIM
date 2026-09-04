@@ -28,7 +28,10 @@ SALES_RULE_TYPES = {
     "markup_on_cost": "Vaste opslag per product (%) op netto inkoopprijs",
     "gross_margin": "Gewenste brutomarge",
     "fixed_markup": "Vaste opslag per product (€) op netto inkoopprijs",
+    "fixed_price": "Vaste verkoopprijs (€)",
 }
+
+ABSOLUTE_SALES_RULE_TYPES = {"fixed_markup", "fixed_price"}
 
 
 def init_discount_tables(slug: str) -> None:
@@ -96,7 +99,7 @@ def save_scoped_sales_price_rule(
     if match_field != "all" and not str(match_value).strip():
         raise ValueError("Vul een productgroep, categorie of SKU in.")
     value = float(rule_value)
-    if value < 0 or (rule_type != "fixed_markup" and value > 100):
+    if value < 0 or (rule_type not in ABSOLUTE_SALES_RULE_TYPES and value > 100):
         raise ValueError("Waarde moet tussen 0 en 100 liggen.")
     init_discount_tables(slug)
     now = utc_now()
@@ -133,7 +136,7 @@ def update_sales_price_rule(
     if match_field != "all" and not str(match_value).strip():
         raise ValueError("Vul een productgroep, categorie of SKU in.")
     value = float(rule_value)
-    if value < 0 or (rule_type != "fixed_markup" and value > 100):
+    if value < 0 or (rule_type not in ABSOLUTE_SALES_RULE_TYPES and value > 100):
         raise ValueError("Waarde moet tussen 0 en 100 liggen.")
     init_discount_tables(slug)
     with _connect(init_supplier_database(slug)) as conn:
@@ -540,7 +543,7 @@ def preview_sales_prices(
                 "Algemene oude instelling" if not scoped_rules else ""
             ),
             "Rekenmethode": SALES_RULE_TYPES.get(effective_type, effective_type),
-            "Ingestelde waarde %": effective_value if (applied_rule or not scoped_rules) else None,
+            "Ingestelde waarde": effective_value if (applied_rule or not scoped_rules) else None,
             "Klantkorting %": (
                 round(
                     (float(effective_gross) - float(calculated))
@@ -562,6 +565,8 @@ def _calculated_sales_price(
     gross: Any, cost: Any, value: float,
     rule_type: str = "discount_from_cost",
 ) -> float | None:
+    if rule_type == "fixed_price":
+        return round(max(0, float(value)), 2)
     if cost is None:
         return None
     cost_value = float(cost)

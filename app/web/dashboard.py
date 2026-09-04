@@ -110,6 +110,7 @@ from app.suppliers.discounts import (
     apply_sales_prices,
     delete_discount_rule,
     delete_sales_price_rule,
+    discount_product_options,
     distinct_match_values,
     list_discount_rules,
     list_sales_price_rules,
@@ -5974,6 +5975,13 @@ with source_sales_pricing_subtab:
         "Maak meerdere regels zoals bij inkoopprijzen. Per product wint eerst "
         "de hoogste prioriteit en daarna het meest specifieke niveau."
     )
+    sales_product_options = discount_product_options(selected_slug)
+
+    def sales_product_label(sku: str) -> str:
+        product = sales_product_options.get(sku) or {}
+        title = product.get("source_title") or "Geen productnaam"
+        return f"{sku} — {title}"
+
     # Dit is bewust geen st.form: toepassingsniveau en rekenmethode bepalen
     # welke invoervelden zichtbaar en actief zijn. In een form verwerkt
     # Streamlit die wijziging pas bij opslaan, waardoor eerst een onvolledige
@@ -5993,11 +6001,13 @@ with source_sales_pricing_subtab:
         if sales_scope == "all":
             sales_match_value = ""
         elif sales_scope == "sku":
-            sales_match_value = st.text_input(
-                "Specifieke SKU", placeholder="Bijvoorbeeld 7812873",
-                help="Wordt bij opslaan exact tegen de actuele PIM gecontroleerd.",
+            sales_match_value = st.selectbox(
+                "Zoek en kies een artikel",
+                list(sales_product_options),
+                format_func=sales_product_label,
                 key=f"new_sales_sku_{selected_slug}",
-            ).strip()
+                help="Zoek op SKU of productnaam en selecteer één actueel artikel.",
+            ) if sales_product_options else ""
         elif sales_available_values:
             sales_match_value = st.selectbox(
                 "Productgroep of categorie", sales_available_values,
@@ -6015,8 +6025,11 @@ with source_sales_pricing_subtab:
             key=f"new_sales_type_{selected_slug}",
         )
         scoped_sales_value = sales_form_columns[1].number_input(
-            "Vaste opslag (€)" if scoped_sales_type == "fixed_markup" else "Waarde (%)",
-            min_value=0.0, max_value=100000.0 if scoped_sales_type == "fixed_markup" else 100.0,
+            "Vaste opslag (€)" if scoped_sales_type == "fixed_markup"
+            else "Vaste verkoopprijs (€)" if scoped_sales_type == "fixed_price"
+            else "Waarde (%)",
+            min_value=0.0,
+            max_value=100000.0 if scoped_sales_type in {"fixed_markup", "fixed_price"} else 100.0,
             value=0.0 if scoped_sales_type == "none" else 20.0, step=0.5,
             disabled=scoped_sales_type == "none",
             key=f"new_sales_value_{selected_slug}",
@@ -6063,12 +6076,16 @@ with source_sales_pricing_subtab:
                     "Waarde": rule["match_value"] or "Alle producten",
                     "Rekenmethode": SALES_RULE_TYPES.get(rule["rule_type"], rule["rule_type"]),
                     "Getal": rule["rule_value"], "Prioriteit": rule["priority"],
+                    "   ": "",
                 } for rule in scoped_sales_rules
             ]),
             hide_index=True,
             width="stretch",
             # Header plus minimaal vijf zichtbare gegevensregels.
             height=220,
+            column_config={
+                "   ": st.column_config.TextColumn("   ", width=36),
+            },
         )
         scoped_rule_by_label = {
             f"#{rule['id']} · {rule['name']}": rule for rule in scoped_sales_rules
@@ -6108,17 +6125,25 @@ with source_sales_pricing_subtab:
                 if edit_sales_scope == "all":
                     edit_sales_match_value = ""
                 elif edit_sales_scope == "sku":
-                    edit_sales_match_value = st.text_input(
-                        "Specifieke SKU",
-                        value=(
-                            managed_sales_rule["match_value"]
-                            if managed_sales_rule["match_field"] == "sku" else ""
+                    current_sales_sku = (
+                        managed_sales_rule["match_value"]
+                        if managed_sales_rule["match_field"] == "sku"
+                        and managed_sales_rule["match_value"] in sales_product_options
+                        else next(iter(sales_product_options), "")
+                    )
+                    edit_sales_match_value = st.selectbox(
+                        "Zoek en kies een artikel",
+                        list(sales_product_options),
+                        index=(
+                            list(sales_product_options).index(current_sales_sku)
+                            if current_sales_sku else 0
                         ),
+                        format_func=sales_product_label,
                         key=(
                             f"edit_sales_sku_{selected_slug}_"
                             f"{managed_sales_rule['id']}"
                         ),
-                    ).strip()
+                    ) if sales_product_options else ""
                 elif edit_available_values:
                     current_edit_value = (
                         managed_sales_rule["match_value"]
@@ -6154,9 +6179,11 @@ with source_sales_pricing_subtab:
                     ),
                 )
                 edit_sales_value = edit_columns[1].number_input(
-                    "Vaste opslag (€)" if edit_sales_type == "fixed_markup" else "Waarde (%)",
+                    "Vaste opslag (€)" if edit_sales_type == "fixed_markup"
+                    else "Vaste verkoopprijs (€)" if edit_sales_type == "fixed_price"
+                    else "Waarde (%)",
                     min_value=0.0,
-                    max_value=100000.0 if edit_sales_type == "fixed_markup" else 100.0,
+                    max_value=100000.0 if edit_sales_type in {"fixed_markup", "fixed_price"} else 100.0,
                     value=float(managed_sales_rule["rule_value"]), step=0.5,
                     disabled=edit_sales_type == "none",
                     key=(
