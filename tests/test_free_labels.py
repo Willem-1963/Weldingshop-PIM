@@ -36,3 +36,17 @@ with patch.object(label_page, "get_active_template", return_value=""), patch.obj
     app.number_input(key="free_label_count").set_value(1).run()
     assert not app.exception
     assert app.text_input(key="free_label_1_text").value == "Magazijn"
+
+
+def test_product_free_line_follows_location():
+    from app.web.label_page import FieldSetting, build_label_document
+    document = build_label_document(
+        {"sku": "TEST", "custom_location": "A-12", "free_label_text": "Extra <tekst>",
+         "free_label_size": 18},
+        [FieldSetting("custom_location", 12, "1 regel", 1),
+         FieldSetting("sku", 12, "1 regel", 2)],
+        list(LABEL_FORMATS)[0], 1,
+    )
+    assert document.index("Locatie: A-12") < document.index("Extra &lt;tekst&gt;")
+    assert document.index("Extra &lt;tekst&gt;") < document.index(">TEST</div>")
+    assert 'font-size:18pt">Extra &lt;tekst&gt;' in document

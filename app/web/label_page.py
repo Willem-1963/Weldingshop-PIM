@@ -479,7 +479,21 @@ def build_label_document(
 ) -> str:
     values = product_values(product)
     blocks: list[str] = []
-    for setting in sorted(settings, key=lambda item: item.position):
+    free_text = str(product.get("free_label_text") or "").strip()
+    free_size = int(product.get("free_label_size") or 12)
+    free_block = (
+        f'<div class="field text-field lines-1" style="font-size:{free_size}pt">'
+        f'{html.escape(free_text)}</div>'
+    ) if free_text else ""
+    ordered_settings = sorted(settings, key=lambda item: item.position)
+    if free_block:
+        # Also insert the free line when the location itself is empty.
+        location_index = next((index for index, item in enumerate(ordered_settings)
+                               if item.field == "custom_location"), len(ordered_settings) - 1)
+    for index, setting in enumerate(ordered_settings):
+        if free_block and index == location_index + 1:
+            blocks.append(free_block)
+            free_block = ""
         value = values.get(setting.field, "")
         if not value:
             continue
@@ -496,6 +510,8 @@ def build_label_document(
             f'<div class="field text-field lines-{lines}" style="font-size:{setting.size}pt">'
             f'{html.escape(display_value)}</div>'
         )
+    if free_block:
+        blocks.append(free_block)
     return _build_print_document(blocks, label_format, quantity, values["sku"])
 
 
@@ -920,6 +936,20 @@ def _show_product_labels(force_reload: bool = False) -> None:
     )
     if saved_location_message:
         st.success(saved_location_message)
+
+    free_text_col, free_size_col = st.columns([3, 1])
+    with free_text_col:
+        full_product["free_label_text"] = st.text_input(
+            "Vrije regel onder locatiecode",
+            key="product_label_free_text",
+            placeholder="Optionele tekst op het productlabel",
+        )
+    with free_size_col:
+        free_size_label = st.selectbox(
+            "Tekstgrootte vrije regel", list(TEXT_SIZES), index=1,
+            key="product_label_free_size",
+        )
+        full_product["free_label_size"] = TEXT_SIZES[free_size_label]
 
     preview_slot = st.empty()
     field_panel = st.expander("Veldinstellingen", expanded=False)
