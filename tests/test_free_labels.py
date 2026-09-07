@@ -50,3 +50,43 @@ def test_product_free_line_follows_location():
     assert document.index("Locatie: A-12") < document.index("Extra &lt;tekst&gt;")
     assert document.index("Extra &lt;tekst&gt;") < document.index(">TEST</div>")
     assert 'font-size:18pt">Extra &lt;tekst&gt;' in document
+
+
+def test_product_template_survives_free_text_size_and_quantity_changes():
+    app = AppTest.from_string('''
+from contextlib import ExitStack
+from unittest.mock import patch
+from app.web import label_page as page
+page.st.session_state.setdefault("label_search_query", "TEST")
+settings = {"label_format": list(page.LABEL_FORMATS)[1], "fields": {
+    "title": {"enabled": True, "size_label": "Groot — 18 pt", "display": "2 regels", "position": 2},
+    "custom_location": {"enabled": True, "size_label": "Klein — 9 pt", "display": "1 regel", "position": 1},
+}}
+product = {"sku": "TEST", "supplier": "Test", "source_title": "Testproduct"}
+with ExitStack() as stack:
+    for name, value in {
+        "get_active_template": "Magazijn", "get_template": settings,
+        "get_last_settings": {}, "list_templates": ["Magazijn"],
+        "list_workstations": [], "save_last_settings": None,
+        "_search_all_suppliers": [product],
+        "shopify_label_values_for_sku": {"custom_location": "A-1", "ean": "", "inventory_quantity": 1},
+    }.items():
+        stack.enter_context(patch.object(page, name, return_value=value))
+    page.show_label_page()
+''').run()
+    assert not app.exception
+    for key, value in [("product_label_free_text", "Vrije tekst"),
+                       ("product_label_free_size", "Extra groot — 28 pt"),
+                       ("label_quantity", 3)]:
+        if key.endswith("text"):
+            app.text_input(key=key).set_value(value).run()
+        elif key.endswith("size"):
+            app.selectbox(key=key).set_value(value).run()
+        else:
+            app.number_input(key=key).set_value(value).run()
+        assert not app.exception
+        assert app.selectbox(key="label_saved_template").value == "Magazijn"
+        assert app.selectbox(key="label_format").value == list(LABEL_FORMATS)[1]
+        assert app.selectbox(key="label_position_custom_location").value == 1
+        assert app.selectbox(key="label_size_custom_location").value == "Klein — 9 pt"
+        assert app.text_input(key="product_label_free_text").value == "Vrije tekst"

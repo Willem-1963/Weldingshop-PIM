@@ -690,8 +690,8 @@ def _save_current_session_settings() -> None:
     save_last_settings(_current_settings(label_format))
 
 
-def _preserve_layout_when_print_quantity_changes() -> None:
-    """Bewaar de actuele (ook nog niet opgeslagen) opmaak over de rerun heen."""
+def _preserve_product_label_layout() -> None:
+    """Bewaar ontwerp en templatekeuze bij wijzigingen aan de afdrukinhoud."""
     label_format = st.session_state.get("label_format")
     if (label_format not in LABEL_FORMATS
             or "label_field_title" not in st.session_state):
@@ -700,6 +700,7 @@ def _preserve_layout_when_print_quantity_changes() -> None:
     loaded_template = str(st.session_state.get("label_loaded_template") or "").strip()
     if loaded_template:
         pending["template_name"] = loaded_template
+    pending["selected_template"] = st.session_state.get("label_saved_template")
     st.session_state["label_pending_settings"] = pending
 
 
@@ -768,6 +769,10 @@ def _show_product_labels(force_reload: bool = False) -> None:
         if pending.get("template_name"):
             st.session_state["label_template_name"] = pending["template_name"]
             st.session_state["label_loaded_template"] = pending["template_name"]
+        if pending.get("selected_template"):
+            st.session_state["label_saved_template"] = pending["selected_template"]
+        elif pending.get("template_name"):
+            st.session_state["label_saved_template"] = pending["template_name"]
         st.session_state["label_last_settings_loaded"] = True
     elif (force_reload
           or not st.session_state.get("label_last_settings_loaded")
@@ -801,7 +806,7 @@ def _show_product_labels(force_reload: bool = False) -> None:
             value=1,
             step=1,
             key="label_quantity",
-            on_change=_preserve_layout_when_print_quantity_changes,
+            on_change=_preserve_product_label_layout,
         )
     with format_col:
         label_format = st.selectbox(
@@ -942,12 +947,14 @@ def _show_product_labels(force_reload: bool = False) -> None:
         full_product["free_label_text"] = st.text_input(
             "Vrije regel onder locatiecode",
             key="product_label_free_text",
+            on_change=_preserve_product_label_layout,
             placeholder="Optionele tekst op het productlabel",
         )
     with free_size_col:
         free_size_label = st.selectbox(
             "Tekstgrootte vrije regel", list(TEXT_SIZES), index=1,
             key="product_label_free_size",
+            on_change=_preserve_product_label_layout,
         )
         full_product["free_label_size"] = TEXT_SIZES[free_size_label]
 
