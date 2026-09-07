@@ -477,7 +477,6 @@ def build_label_document(
     label_format: str,
     quantity: int,
 ) -> str:
-    width, height = LABEL_FORMATS[label_format]
     values = product_values(product)
     blocks: list[str] = []
     for setting in sorted(settings, key=lambda item: item.position):
@@ -497,11 +496,39 @@ def build_label_document(
             f'<div class="field text-field lines-{lines}" style="font-size:{setting.size}pt">'
             f'{html.escape(display_value)}</div>'
         )
+    return _build_print_document(blocks, label_format, quantity, values["sku"])
+
+
+def build_free_label_document(
+    lines: list[dict[str, Any]], label_format: str, quantity: int,
+) -> str:
+    if len(lines) > 5:
+        raise ValueError("Een vrij label mag maximaal vijf regels bevatten.")
+    blocks = []
+    for line in lines:
+        size = int(line.get("size", 12))
+        alignment = str(line.get("alignment", "left"))
+        if not 6 <= size <= 72 or alignment not in ("left", "center", "right"):
+            raise ValueError("Ongeldige tekstgrootte of uitlijning.")
+        value = str(line.get("text", "")).replace("\n", " ").replace("\r", " ")
+        blocks.append(
+            f'<div class="field text-field lines-1" '
+            f'style="font-size:{size}pt;text-align:{alignment};min-height:1.08em">'
+            f'{html.escape(value)}</div>'
+        )
+    return _build_print_document(blocks, label_format, quantity, "Vrij label")
+
+
+def _build_print_document(
+    blocks: list[str], label_format: str, quantity: int, title: str,
+) -> str:
+    width, height = LABEL_FORMATS[label_format]
+    quantity = max(1, min(int(quantity), 500))
     format_class = "label-large" if label_format.startswith("4 × 6") else "label-dymo"
     label = f'<section class="label {format_class}">{"".join(blocks)}</section>'
     labels = label * max(1, min(int(quantity), 500))
     return f"""<!doctype html>
-<html lang="nl"><head><meta charset="utf-8"><title>Labels {html.escape(values['sku'])}</title>
+<html lang="nl"><head><meta charset="utf-8"><title>Labels {html.escape(title)}</title>
 <style>
 @page {{ size: {width} {height}; margin: 0; }}
 * {{ box-sizing: border-box; }}
@@ -661,6 +688,60 @@ def _preserve_layout_when_print_quantity_changes() -> None:
 
 
 def show_label_page(force_reload: bool = False) -> None:
+    st.title("Labels maken")
+    product_tab, free_tab = st.tabs(["Productlabels", "Vrije labels"])
+    with product_tab:
+        _show_product_labels(force_reload)
+    with free_tab:
+        _show_free_labels()
+
+
+def _show_free_labels() -> None:
+    st.caption("Maak een vrij label met maximaal vijf regels. Stel per regel de tekstgrootte en uitlijning in.")
+    format_col, quantity_col, count_col = st.columns([1.5, 1, 1])
+    with format_col:
+        label_format = st.selectbox("Labelformaat", list(LABEL_FORMATS), key="free_label_format")
+    with quantity_col:
+        quantity = st.number_input("Aantal labels afdrukken", min_value=1, max_value=500,
+                                   value=1, step=1, key="free_label_quantity")
+    with count_col:
+        count = st.number_input("Aantal regels", min_value=1, max_value=5,
+                               value=5, step=1, key="free_label_count")
+    alignments = {"Links": "left", "Centreren": "center", "Rechts": "right"}
+    lines = []
+    for index in range(1, 6):
+        # Keep hidden row values when the number of lines is reduced.
+        if index > count:
+            for suffix in ("text", "size", "alignment"):
+                key = f"free_label_{index}_{suffix}"
+                if key in st.session_state:
+                    st.session_state[key] = st.session_state[key]
+            continue
+        text_col, size_col, alignment_col = st.columns([3, 1, 1])
+        with text_col:
+            value = st.text_input(f"Regel {index}", key=f"free_label_{index}_text")
+        with size_col:
+            size = st.number_input(f"Tekstgrootte regel {index} (pt)", min_value=6,
+                                   max_value=72, value=12, step=1, key=f"free_label_{index}_size")
+        with alignment_col:
+            alignment = st.selectbox(f"Uitlijning regel {index}", list(alignments),
+                                     key=f"free_label_{index}_alignment")
+        lines.append({"text": value, "size": size, "alignment": alignments[alignment]})
+    if not any(line["text"].strip() for line in lines):
+        st.info("Vul minimaal één tekstregel in om een label te maken.")
+        return
+    # Unused trailing rows do not take space on the label; interior blanks do.
+    while lines and not lines[-1]["text"].strip():
+        lines.pop()
+    document = build_free_label_document(lines, label_format, int(quantity))
+    st.markdown("#### Afdrukvoorbeeld")
+    st.caption("Controleer of de tekst past. Kies bij afdrukken schaal 100% / werkelijke grootte.")
+    components.html(document, height=560 if label_format.startswith("4 × 6") else 330, scrolling=True)
+    st.download_button("Labelbestand downloaden", data=document.encode("utf-8"),
+                       file_name="vrije-labels.html", mime="text/html", key="free_label_download")
+
+
+def _show_product_labels(force_reload: bool = False) -> None:
     pending = st.session_state.pop("label_pending_settings", None)
     if pending:
         # Een opgeslagen ontwerp moet alle huidige widgetwaarden vervangen.
@@ -687,7 +768,6 @@ def show_label_page(force_reload: bool = False) -> None:
             st.session_state["label_loaded_template"] = active_template
         st.session_state["label_last_settings_loaded"] = True
 
-    st.title("Labels maken")
     st.caption("Zoek een product, stel het label samen en kies daarna de printer in het systeemvenster.")
 
     query_col, print_quantity_col, format_col = st.columns([2.2, 0.8, 1.2])
