@@ -864,16 +864,16 @@ def _show_product_labels(force_reload: bool = False) -> None:
         st.session_state[location_key] = str(full_product.get("custom_location") or "")
     if ean_key not in st.session_state:
         st.session_state[ean_key] = str(full_product.get("ean") or "")
+    location_input = st.text_input(
+        "Locatie",
+        key=location_key,
+        placeholder="Vul de locatie in",
+        on_change=_preserve_product_label_layout,
+    )
     with st.form(f"label_product_settings_{full_product.get('sku', '')}"):
-        location_col, ean_col, generate_col, quantity_col, save_col = st.columns(
-            [1.5, 1.5, 0.8, 0.8, 0.8], vertical_alignment="bottom"
+        ean_col, generate_col, quantity_col, save_col = st.columns(
+            [1.5, 0.8, 0.8, 0.8], vertical_alignment="bottom"
         )
-        with location_col:
-            location_input = st.text_input(
-                "Locatie",
-                key=location_key,
-                placeholder="Vul de locatie in",
-            )
         with ean_col:
             ean_input = st.text_input(
                 "Barcode-EAN",
@@ -945,6 +945,9 @@ def _show_product_labels(force_reload: bool = False) -> None:
         st.error(f"EAN genereren is niet gelukt: {generation_error}")
     if ean_input != str(full_product.get("ean") or ""):
         st.info("De gewijzigde EAN staat in het afdrukvoorbeeld. Klik op Opslaan om deze bij het product te bewaren.")
+    if location_input != str(full_product.get("custom_location") or ""):
+        st.info("De gewijzigde locatie staat in het afdrukvoorbeeld. Klik op Opslaan om deze bij het product te bewaren.")
+    full_product["custom_location"] = location_input.strip()
     # Preview the current form value, including a replacement for an existing EAN.
     full_product["ean"] = ean_input
     if shopify_values_error:

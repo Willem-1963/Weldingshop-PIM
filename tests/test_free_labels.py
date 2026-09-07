@@ -108,9 +108,11 @@ def test_generate_ean_replaces_existing_number_in_field_and_preview(monkeypatch)
         "custom_location": "A-1", "ean": "2900000000008", "inventory_quantity": 1,
     })
     previews = []
+    locations = []
     original = page.build_label_document
     def capture(product, *args):
         previews.append(product["ean"])
+        locations.append(product["custom_location"])
         return original(product, *args)
     monkeypatch.setattr(page, "build_label_document", capture)
     app = AppTest.from_string('''
@@ -125,3 +127,11 @@ page.show_label_page()
     assert app.text_input(key="label_ean_value_TEST").value == new_ean
     assert previews[-1] == new_ean
     assert any("Klik op Opslaan" in item.value for item in app.info)
+
+    app.text_input(key="label_location_value_TEST").set_value("B-22").run()
+    assert not app.exception
+    assert locations[-1] == "B-22"
+    assert previews[-1] == new_ean
+    app.text_input(key="label_location_value_TEST").set_value("").run()
+    assert not app.exception
+    assert locations[-1] == ""
