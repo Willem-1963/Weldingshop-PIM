@@ -90,3 +90,38 @@ with ExitStack() as stack:
         assert app.selectbox(key="label_position_custom_location").value == 1
         assert app.selectbox(key="label_size_custom_location").value == "Klein — 9 pt"
         assert app.text_input(key="product_label_free_text").value == "Vrije tekst"
+
+
+def test_generate_ean_replaces_existing_number_in_field_and_preview(monkeypatch):
+    from app.web import label_page as page
+    new_ean = "2900000000015"
+    monkeypatch.setattr(page, "generate_unique_ean", lambda: new_ean)
+    monkeypatch.setattr(page, "get_active_template", lambda: "")
+    monkeypatch.setattr(page, "get_last_settings", lambda: {})
+    monkeypatch.setattr(page, "list_templates", lambda: [])
+    monkeypatch.setattr(page, "list_workstations", lambda: [])
+    monkeypatch.setattr(page, "save_last_settings", lambda settings: None)
+    monkeypatch.setattr(page, "_search_all_suppliers", lambda query: [
+        {"sku": "TEST", "supplier": "Test", "source_title": "Testproduct"},
+    ])
+    monkeypatch.setattr(page, "shopify_label_values_for_sku", lambda sku: {
+        "custom_location": "A-1", "ean": "2900000000008", "inventory_quantity": 1,
+    })
+    previews = []
+    original = page.build_label_document
+    def capture(product, *args):
+        previews.append(product["ean"])
+        return original(product, *args)
+    monkeypatch.setattr(page, "build_label_document", capture)
+    app = AppTest.from_string('''
+from app.web import label_page as page
+page.st.session_state.setdefault("label_search_query", "TEST")
+page.show_label_page()
+''').run()
+    assert not app.exception
+    assert app.text_input(key="label_ean_value_TEST").value == "2900000000008"
+    next(button for button in app.button if button.label == "Genereer EAN").click().run()
+    assert not app.exception
+    assert app.text_input(key="label_ean_value_TEST").value == new_ean
+    assert previews[-1] == new_ean
+    assert any("Klik op Opslaan" in item.value for item in app.info)

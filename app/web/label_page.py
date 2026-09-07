@@ -223,7 +223,12 @@ def generate_unique_ean() -> str:
 
 def _generate_ean_for_widget(widget_key: str) -> None:
     """Form-callback: zet de nieuwe EAN vóór de volgende Streamlit-render."""
-    st.session_state[widget_key] = generate_unique_ean()
+    _preserve_product_label_layout()
+    try:
+        st.session_state[widget_key] = generate_unique_ean()
+        st.session_state.pop("label_ean_generation_error", None)
+    except Exception as exc:
+        st.session_state["label_ean_generation_error"] = str(exc)
 
 
 def save_shopify_barcode_for_sku(sku: str, ean: str) -> str:
@@ -834,6 +839,7 @@ def _show_product_labels(force_reload: bool = False) -> None:
         get_supplier_product(selected["supplier_slug"], selected["sku"])
         if selected.get("supplier_slug") else None
     ) or selected
+    full_product = dict(full_product)
     full_product["supplier"] = selected["supplier"]
     try:
         shopify_label_values = shopify_label_values_for_sku(
@@ -934,6 +940,13 @@ def _show_product_labels(force_reload: bool = False) -> None:
                 st.rerun()
             except Exception as exc:
                 st.error(f"Gegevens konden niet worden opgeslagen: {exc}")
+    generation_error = st.session_state.pop("label_ean_generation_error", "")
+    if generation_error:
+        st.error(f"EAN genereren is niet gelukt: {generation_error}")
+    if ean_input != str(full_product.get("ean") or ""):
+        st.info("De gewijzigde EAN staat in het afdrukvoorbeeld. Klik op Opslaan om deze bij het product te bewaren.")
+    # Preview the current form value, including a replacement for an existing EAN.
+    full_product["ean"] = ean_input
     if shopify_values_error:
         st.warning(f"Shopify-locatie en voorraad konden niet worden geladen: {shopify_values_error}")
     saved_location_message = str(
