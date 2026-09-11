@@ -152,7 +152,7 @@ from app.web.label_page import _show_mobile_labels
 _show_mobile_labels()
 ''').run()
     assert not app.exception
-    assert app.selectbox(key="mobile_label_printer").value == "Gprinter GP-1324D"
+    assert app.selectbox(key="mobile_label_printer").value == "gprinter gp-1324d"
     app.text_input(key="mobile_label_search").set_value("MOB-1").run()
     assert not app.exception
     app.number_input(key="mobile_label_quantity").set_value(3).run()
@@ -160,7 +160,7 @@ _show_mobile_labels()
     document = documents[-1]
     assert document.count('<section class="label ') == 3
     assert "@page { size: 6in 4in; margin: 0; }" in document
-    assert "Gprinter GP-1324D" in document
+    assert "gprinter gp-1324d" in document
     assert "Locatie: B-12" in document
     assert "--preview-scale" in document
     assert "label_format" not in app.session_state

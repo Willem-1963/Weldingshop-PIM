@@ -566,7 +566,7 @@ function fitLabels() {
 window.addEventListener('resize', fitLabels);
 fitLabels();
 </script>""" if mobile else ""
-    printer_hint = " · Gprinter GP-1324D" if mobile else ""
+    printer_hint = " · gprinter gp-1324d" if mobile else ""
     return f"""<!doctype html>
 <html lang="nl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Labels {html.escape(title)}</title>
@@ -744,10 +744,10 @@ def show_label_page(force_reload: bool = False) -> None:
 
 def _show_mobile_labels() -> None:
     st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
-    st.selectbox("Printervoorkeur", ["Gprinter GP-1324D"], key="mobile_label_printer")
+    st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
     st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
     st.info(
-        "Kies Gprinter GP-1324D ook in het afdrukvenster van je apparaat. "
+        "Kies gprinter gp-1324d ook in het afdrukvenster van je apparaat. "
         "De browser kan de printer niet automatisch selecteren. "
         "Controleer 4 × 6 inch, liggend en schaal 100%."
     )
