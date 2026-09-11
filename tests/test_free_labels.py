@@ -27,7 +27,7 @@ with patch.object(label_page, "get_active_template", return_value=""), patch.obj
     label_page.show_label_page()
 ''').run()
     assert not app.exception
-    assert [tab.label for tab in app.tabs] == ["Productlabels", "Vrije labels"]
+    assert [tab.label for tab in app.tabs] == ["Productlabels", "Vrije labels", "Mobiel"]
     app.text_input(key="free_label_1_text").set_value("Magazijn")
     app.number_input(key="free_label_1_size").set_value(24)
     app.selectbox(key="free_label_1_alignment").set_value("Rechts").run()
@@ -135,3 +135,32 @@ page.show_label_page()
     app.text_input(key="label_location_value_TEST").set_value("").run()
     assert not app.exception
     assert locations[-1] == ""
+
+
+def test_mobile_labels_keep_print_size_and_quantity(monkeypatch):
+    from app.web import label_page as page
+    monkeypatch.setattr(page, "_search_all_suppliers", lambda query: [
+        {"sku": "MOB-1", "supplier": "Test", "source_title": "Mobiel product"},
+    ])
+    monkeypatch.setattr(page, "shopify_label_values_for_sku", lambda sku: {
+        "custom_location": "B-12", "ean": "2900000000008",
+    })
+    documents = []
+    monkeypatch.setattr(page.components, "html", lambda document, **kwargs: documents.append(document))
+    app = AppTest.from_string('''
+from app.web.label_page import _show_mobile_labels
+_show_mobile_labels()
+''').run()
+    assert not app.exception
+    assert app.selectbox(key="mobile_label_printer").value == "Gprinter GP-1324D"
+    app.text_input(key="mobile_label_search").set_value("MOB-1").run()
+    assert not app.exception
+    app.number_input(key="mobile_label_quantity").set_value(3).run()
+    assert not app.exception
+    document = documents[-1]
+    assert document.count('<section class="label ') == 3
+    assert "@page { size: 6in 4in; margin: 0; }" in document
+    assert "Gprinter GP-1324D" in document
+    assert "Locatie: B-12" in document
+    assert "--preview-scale" in document
+    assert "label_format" not in app.session_state

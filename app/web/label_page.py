@@ -481,6 +481,7 @@ def build_label_document(
     settings: list[FieldSetting],
     label_format: str,
     quantity: int,
+    *, mobile: bool = False,
 ) -> str:
     values = product_values(product)
     blocks: list[str] = []
@@ -517,7 +518,7 @@ def build_label_document(
         )
     if free_block:
         blocks.append(free_block)
-    return _build_print_document(blocks, label_format, quantity, values["sku"])
+    return _build_print_document(blocks, label_format, quantity, values["sku"], mobile=mobile)
 
 
 def build_free_label_document(
@@ -542,14 +543,33 @@ def build_free_label_document(
 
 def _build_print_document(
     blocks: list[str], label_format: str, quantity: int, title: str,
+    *, mobile: bool = False,
 ) -> str:
     width, height = LABEL_FORMATS[label_format]
     quantity = max(1, min(int(quantity), 500))
     format_class = "label-large" if label_format.startswith("4 × 6") else "label-dymo"
     label = f'<section class="label {format_class}">{"".join(blocks)}</section>'
     labels = label * max(1, min(int(quantity), 500))
+    mobile_style = """
+@media screen {
+  .toolbar { flex-direction:column; align-items:stretch; gap:8px; }
+  .toolbar button { min-height:48px; font-size:18px; }
+  .pages { padding:8px; }
+  .label { zoom:var(--preview-scale, 1); }
+}
+""" if mobile else ""
+    mobile_script = """<script>
+function fitLabels() {
+  const available = document.querySelector('.pages').clientWidth - 16;
+  document.documentElement.style.setProperty('--preview-scale', Math.min(1, available / 576));
+}
+window.addEventListener('resize', fitLabels);
+fitLabels();
+</script>""" if mobile else ""
+    printer_hint = " · Gprinter GP-1324D" if mobile else ""
     return f"""<!doctype html>
-<html lang="nl"><head><meta charset="utf-8"><title>Labels {html.escape(title)}</title>
+<html lang="nl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Labels {html.escape(title)}</title>
 <style>
 @page {{ size: {width} {height}; margin: 0; }}
 * {{ box-sizing: border-box; }}
@@ -577,14 +597,15 @@ html, body {{ margin:0; padding:0; font-family:Arial,sans-serif; color:#111; bac
 .label-large .barcode-field {{ height:95px; }}
 .label-dymo .barcode-field {{ height:34px; }}
 .barcode {{ display:block; width:100%; height:100%; }}
+{mobile_style}
 @media print {{
   html,body {{ background:white; }} .toolbar {{ display:none !important; }} .pages {{ padding:0; }}
   .label {{ margin:0; }}
 }}
 </style></head><body>
 <div class="toolbar"><button onclick="window.print()">Printer selecteren en afdrukken</button>
-<span>{quantity} label(s) · {html.escape(label_format)}</span></div>
-<main class="pages">{labels}</main></body></html>"""
+<span>{quantity} label(s) · {html.escape(label_format)}{printer_hint}</span></div>
+<main class="pages">{labels}</main>{mobile_script}</body></html>"""
 
 
 def _search_all_suppliers(query: str) -> list[dict[str, Any]]:
@@ -711,11 +732,76 @@ def _preserve_product_label_layout() -> None:
 
 def show_label_page(force_reload: bool = False) -> None:
     st.title("Labels maken")
-    product_tab, free_tab = st.tabs(["Productlabels", "Vrije labels"])
+    product_tab, free_tab, mobile_tab = st.tabs(["Productlabels", "Vrije labels", "Mobiel"])
     with product_tab:
         _show_product_labels(force_reload)
     with free_tab:
         _show_free_labels()
+    with mobile_tab:
+        _show_mobile_labels()
+
+
+
+def _show_mobile_labels() -> None:
+    st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
+    st.selectbox("Printervoorkeur", ["Gprinter GP-1324D"], key="mobile_label_printer")
+    st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
+    st.info(
+        "Kies Gprinter GP-1324D ook in het afdrukvenster van je apparaat. "
+        "De browser kan de printer niet automatisch selecteren. "
+        "Controleer 4 × 6 inch, liggend en schaal 100%."
+    )
+    query = st.text_input(
+        "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
+        key="mobile_label_search",
+    ).strip()
+    if not query:
+        return
+    try:
+        matches = _search_all_suppliers(query)
+    except Exception as exc:
+        st.error(f"Producten zoeken is niet gelukt: {exc}")
+        return
+    if not matches:
+        st.warning("Geen producten gevonden.")
+        return
+    selected_index = st.selectbox(
+        "Product", range(len(matches)),
+        format_func=lambda index: _product_choice(matches[index]),
+        key="mobile_label_product",
+    )
+    selected = matches[selected_index]
+    product = dict((
+        get_supplier_product(selected["supplier_slug"], selected["sku"])
+        if selected.get("supplier_slug") else None
+    ) or selected)
+    product["supplier"] = selected.get("supplier", "")
+    try:
+        values = shopify_label_values_for_sku(str(product.get("sku") or ""))
+        product.update(custom_location=values["custom_location"], ean=values["ean"])
+    except Exception as exc:
+        st.warning(f"Actuele Shopify-gegevens niet beschikbaar: {exc}")
+    quantity = st.number_input(
+        "Aantal labels", min_value=1, max_value=500, value=1, step=1,
+        key="mobile_label_quantity",
+    )
+    product["free_label_text"] = st.text_input("Extra tekst", key="mobile_label_text")
+    settings = [
+        FieldSetting("title", 18, "2 regels", 1),
+        FieldSetting("sku", 12, "1 regel", 2),
+        FieldSetting("ean", 12, "Barcode", 3),
+        FieldSetting("custom_location", 18, "1 regel", 4),
+    ]
+    document = build_label_document(
+        product, settings, "4 × 6 inch — liggend", int(quantity), mobile=True,
+    )
+    components.html(document, height=480, scrolling=True)
+    st.download_button(
+        "Labelbestand downloaden", data=document.encode("utf-8"),
+        file_name=f"mobiele-labels-{product.get('sku', 'product')}.html",
+        mime="text/html", key="mobile_label_download", width="stretch",
+        help="Open dit bestand als afdrukken vanuit het voorbeeld niet lukt.",
+    )
 
 
 def _show_free_labels() -> None:
