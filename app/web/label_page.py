@@ -777,7 +777,14 @@ def _show_mobile_labels() -> None:
         "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
         key="mobile_label_search",
     ).strip()
-    extra_text = st.text_input("Extra tekst", key="mobile_label_text")
+    text_column, quantity_column = st.columns([3, 1])
+    with text_column:
+        extra_text = st.text_input("Extra tekst", key="mobile_label_text")
+    with quantity_column:
+        quantity = st.number_input(
+            "Aantal labels", min_value=1, max_value=500, value=1, step=1,
+            key="mobile_label_quantity",
+        )
     # Reserve the primary mobile controls before rendering their settings.
     # Settings still render on every run, including before any early return.
     action_area = st.container()
@@ -835,10 +842,6 @@ def _show_mobile_labels() -> None:
                     st.session_state.pop("mobile_print_request", None)
                     st.session_state.pop("mobile_print_job", None)
                     recent = None
-        quantity = st.number_input(
-            "Aantal labels", min_value=1, max_value=500, value=1, step=1,
-            key="mobile_label_quantity",
-        )
     if not query:
         return
     try:
