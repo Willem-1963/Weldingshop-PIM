@@ -43,6 +43,9 @@ class ShopifyWebhookHandler(BaseHTTPRequestHandler):
             self._reply(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
+        from app.web.label_print import handle_print_request
+        if handle_print_request(self):
+            return
         if self.path.rstrip("/") != "/shopify/webhooks/inventory":
             self._reply(404, {"error": "not found"})
             return

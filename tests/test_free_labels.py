@@ -4,6 +4,14 @@ from streamlit.testing.v1 import AppTest
 from app.web.label_page import LABEL_FORMATS, build_free_label_document
 
 
+@pytest.fixture(autouse=True)
+def isolated_print_queue(monkeypatch, tmp_path):
+    from app.web import label_print
+    queue = label_print.PrintQueue(tmp_path / "print.sqlite")
+    monkeypatch.setattr(label_print, "PrintQueue", lambda: queue)
+    return queue
+
+
 def test_free_label_print_layout_and_escaping():
     document = build_free_label_document([
         {"text": "<script> & tekst", "size": 18, "alignment": "left"},
@@ -164,3 +172,33 @@ _show_mobile_labels()
     assert "Locatie: B-12" in document
     assert "--preview-scale" in document
     assert "label_format" not in app.session_state
+
+
+def test_mobile_direct_print_requires_bridge_and_prevents_repeat(monkeypatch, isolated_print_queue):
+    from app.web import label_page as page, label_print
+    queue = isolated_print_queue
+    monkeypatch.setattr(page, "_search_all_suppliers", lambda query: [
+        {"sku": "PRINT-1", "supplier": "Test", "source_title": "Printtest"},
+    ])
+    monkeypatch.setattr(page, "shopify_label_values_for_sku", lambda sku: {"custom_location": "A-1", "ean": ""})
+    monkeypatch.setattr(label_print, "render_label_png", lambda document: b"\x89PNG\r\n\x1a\nexample")
+    app = AppTest.from_string('''
+from app.web.label_page import _show_mobile_labels
+_show_mobile_labels()
+''').run()
+    app.text_input(key="mobile_label_search").set_value("PRINT-1").run()
+    assert app.button(key="mobile_direct_print").disabled
+    queue.claim(label_print.PRINTER)
+    app.button(key="mobile_printer_refresh").click().run()
+    assert not app.button(key="mobile_direct_print").disabled
+    app.button(key="mobile_direct_print").click().run()
+    assert not app.exception
+    identifier = app.session_state["mobile_print_job"]
+    assert queue.job(identifier)["state"] == "queued"
+    assert app.button(key="mobile_direct_print").disabled
+    job = queue.claim(label_print.PRINTER)
+    queue.complete(job["id"], job["claim"], "submitted")
+    app.button(key="mobile_printer_refresh").click().run()
+    assert app.button(key="mobile_direct_print").disabled
+    app.button(key="mobile_print_again").click().run()
+    assert not app.button(key="mobile_direct_print").disabled

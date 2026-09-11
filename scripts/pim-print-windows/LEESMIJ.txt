@@ -1,0 +1,23 @@
+Weldingshop PIM - direct labels afdrukken
+
+1. Pak de volledige ZIP uit op de Windows-pc met de USB-printer.
+2. Controleer dat de Windows-printer exact gprinter gp-1324d heet.
+3. Dubbelklik op Installeren.cmd. Er zijn geen beheerdersrechten nodig.
+4. Ga in de PIM naar Labels > Mobiel en klik op Printerstatus vernieuwen.
+5. Zoek een product en klik op Direct afdrukken. Begin met 1 label.
+
+Papier: 4 x 6 inch (101,6 x 152,4 mm), liggend.
+De pc moet aanstaan en de Windows-gebruiker moet aangemeld zijn.
+Mobility Print blijft beschikbaar voor afdrukken via het Android-afdrukvenster.
+De service haalt opdrachten via HTTPS op. Er zijn geen routerpoorten nodig.
+
+'Aangeboden aan Windows' betekent dat de Windows-wachtrij de opdracht ontving;
+het bevestigt niet dat het label fysiek uit de printer kwam.
+Bij een onzekere status eerst de printer en de Windows-wachtrij controleren.
+Opdrachten ouder dan 10 minuten worden niet alsnog automatisch afgedrukt.
+
+Installatiemap: %LOCALAPPDATA%\Weldingshop\PimPrint
+Logbestand: print.log in die map.
+Stoppen: meld je af bij Windows. Verwijder voor definitief uitschakelen de
+snelkoppeling 'Weldingshop PIM Print' uit de map die opent met Win+R, shell:startup.
+Bewaar de ZIP en config.json prive: deze bevatten het toegangstoken.

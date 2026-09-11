@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import secrets
 import uuid
@@ -743,14 +744,44 @@ def show_label_page(force_reload: bool = False) -> None:
 
 
 def _show_mobile_labels() -> None:
+    from app.web.label_print import PrintQueue, render_label_png
+
     st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
     st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
     st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
-    st.info(
-        "Kies gprinter gp-1324d ook in het afdrukvenster van je apparaat. "
-        "De browser kan de printer niet automatisch selecteren. "
-        "Controleer 4 × 6 inch, liggend en schaal 100%."
-    )
+    queue = PrintQueue()
+    bridge = queue.status()
+    if bridge["online"]:
+        st.success("Printservice verbonden · direct afdrukken beschikbaar")
+    elif bridge["error"]:
+        st.warning(bridge["error"])
+    else:
+        st.info("Printservice nog niet verbonden. Installeer de koppeling op de pc met de USB-printer en laat die pc aanstaan.")
+    st.button("Printerstatus vernieuwen", key="mobile_printer_refresh", width="stretch")
+    with st.expander("Windows-pc koppelen"):
+        st.write("Download dit pakket op de pc met de USB-printer, pak de ZIP uit en open Installeren.cmd. De printservice start daarna automatisch bij aanmelden bij Windows.")
+        if st.button("Installatiepakket voorbereiden", key="mobile_printer_setup"):
+            st.session_state["mobile_printer_installer"] = queue.installer()
+        if st.session_state.get("mobile_printer_installer"):
+            st.download_button("Windows-printservice downloaden", st.session_state["mobile_printer_installer"],
+                               file_name="Weldingshop-PIM-Print.zip", mime="application/zip",
+                               key="mobile_printer_installer_download", width="stretch")
+            st.caption("Dit pakket bevat je persoonlijke printerkoppeling. Deel het niet met anderen.")
+    recent_id = st.session_state.get("mobile_print_job")
+    recent = queue.job(recent_id) if recent_id else None
+    if recent:
+        labels = {"queued": "Wacht op de print-pc", "claimed": "Wordt naar Windows gestuurd",
+                  "submitted": "Aangeboden aan de Windows-afdrukwachtrij",
+                  "expired": "Verlopen: de pc heeft deze opdracht niet binnen 10 minuten opgehaald",
+                  "failed": "Afdrukken mislukt", "uncertain": "Afdrukstatus onzeker: controleer eerst de printer en Windows-wachtrij"}
+        st.info(f"Laatste opdracht: {recent['copies']} label(s) · {labels.get(recent['state'], recent['state'])}")
+        if recent["detail"]:
+            st.caption(recent["detail"])
+        if recent["state"] in {"submitted", "expired", "failed", "uncertain"}:
+            if st.button("Nieuwe afdruk van hetzelfde label toestaan", key="mobile_print_again"):
+                st.session_state.pop("mobile_print_request", None)
+                st.session_state.pop("mobile_print_job", None)
+                recent = None
     query = st.text_input(
         "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
         key="mobile_label_search",
@@ -795,6 +826,23 @@ def _show_mobile_labels() -> None:
     document = build_label_document(
         product, settings, "4 × 6 inch — liggend", int(quantity), mobile=True,
     )
+    fingerprint = hashlib.sha256(document.encode("utf-8")).hexdigest()
+    previous = st.session_state.get("mobile_print_request", {})
+    same_job = previous.get("fingerprint") == fingerprint and bool(recent)
+    if st.button("Direct afdrukken", type="primary", width="stretch",
+                 key="mobile_direct_print", disabled=not bridge["online"] or same_job):
+        try:
+            if previous.get("fingerprint") != fingerprint:
+                previous = {"fingerprint": fingerprint, "key": str(uuid.uuid4())}
+                st.session_state["mobile_print_request"] = previous
+            with st.spinner("Label gereedmaken voor de printer…"):
+                png = render_label_png(document)
+                job_id = queue.enqueue(png, int(quantity), str(product.get("sku") or "Productlabel"), previous["key"])
+            st.session_state["mobile_print_job"] = job_id
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Printopdracht kon niet worden klaargezet: {exc}")
+    st.caption("Direct afdrukken gebruikt de gekoppelde Windows-pc. Via het voorbeeld kun je ook het gewone afdrukvenster gebruiken; kies daar zelf de printer.")
     components.html(document, height=480, scrolling=True)
     st.download_button(
         "Labelbestand downloaden", data=document.encode("utf-8"),
