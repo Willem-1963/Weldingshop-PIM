@@ -43,6 +43,17 @@ def test_claim_once_and_idempotent_submission(tmp_path):
     assert queue.claim(label_print.PRINTER) is None
 
 
+def test_windows_printer_capitalization_is_accepted(tmp_path):
+    queue = label_print.PrintQueue(tmp_path / "print.sqlite")
+    identifier = queue.enqueue(PNG, 1, "Label", "capitalized-printer")
+    job = queue.claim("Gprinter GP-1324D")
+    assert job["id"] == identifier
+    assert queue.status()["online"]
+    assert queue.status()["printer"] == "Gprinter GP-1324D"
+    assert queue.claim("HP LaserJet Pro M12w") is None
+    assert not queue.status()["online"]
+
+
 def test_offline_expired_and_uncertain_jobs_are_not_printed_again(tmp_path):
     queue = label_print.PrintQueue(tmp_path / "print.sqlite")
     identifier = queue.enqueue(PNG, 1, "Label", "first")

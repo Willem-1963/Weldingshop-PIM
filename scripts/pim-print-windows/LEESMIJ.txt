@@ -1,7 +1,8 @@
 Weldingshop PIM - direct labels afdrukken
 
 1. Pak de volledige ZIP uit op de Windows-pc met de USB-printer.
-2. Controleer dat de Windows-printer exact gprinter gp-1324d heet.
+2. Controleer dat de Windows-printer gprinter gp-1324d heet.
+   Gprinter GP-1324D wordt ook herkend; de echte Windows-naam wordt opgeslagen.
 3. Dubbelklik op Installeren.cmd. Er zijn geen beheerdersrechten nodig.
 4. Ga in de PIM naar Labels > Mobiel en klik op Printerstatus vernieuwen.
 5. Zoek een product en klik op Direct afdrukken. Begin met 1 label.

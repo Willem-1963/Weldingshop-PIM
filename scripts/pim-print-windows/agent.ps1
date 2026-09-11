@@ -84,7 +84,7 @@ try {
                 $pending = @{id=$job.id; claim=$job.claim; state='printing'; detail=''}
                 Save-Pending $pending
                 try {
-                    if ($job.printer -cne $config.printer) { throw 'Onverwachte printer in opdracht' }
+                    if ($job.printer -ine $config.printer) { throw 'Onverwachte printer in opdracht' }
                     [PimLabelPrinter]::Print([Convert]::FromBase64String($job.image), $config.printer, [int]$job.copies, $job.id)
                     $pending.state = 'submitted'
                     $pending.detail = 'Aangeboden aan de Windows-afdrukwachtrij.'

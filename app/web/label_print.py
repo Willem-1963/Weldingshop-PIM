@@ -56,7 +56,7 @@ class PrintQueue:
     def status(self):
         with self.connect() as db:
             row = dict(db.execute("SELECT seen,printer,error FROM bridge WHERE id=1").fetchone())
-        row["online"] = time.time() - row["seen"] < 45 and row["printer"] == PRINTER and not row["error"]
+        row["online"] = time.time() - row["seen"] < 45 and row["printer"].casefold() == PRINTER.casefold() and not row["error"]
         return row
 
     def enqueue(self, image, copies, title, request_key):
@@ -83,7 +83,7 @@ class PrintQueue:
             # A claimed job is never automatically requeued: it may already be on paper.
             db.execute("UPDATE jobs SET state='uncertain',updated=? WHERE state='claimed' AND updated<?", (now, now - 600))
             db.execute("DELETE FROM jobs WHERE updated<?", (now - 30 * 86400,))
-            if printer != PRINTER or error:
+            if printer.casefold() != PRINTER.casefold() or error:
                 return None
             row = db.execute("SELECT * FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if not row:
