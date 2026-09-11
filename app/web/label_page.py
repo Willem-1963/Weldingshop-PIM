@@ -773,6 +773,10 @@ def _mobile_template_fields(saved: dict[str, Any] | None) -> list[FieldSetting]:
 def _show_mobile_labels() -> None:
     from app.web.label_print import PrintQueue, render_label_png
 
+    query = st.text_input(
+        "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
+        key="mobile_label_search",
+    ).strip()
     st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
     st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
     st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
@@ -825,10 +829,6 @@ def _show_mobile_labels() -> None:
                 st.session_state.pop("mobile_print_request", None)
                 st.session_state.pop("mobile_print_job", None)
                 recent = None
-    query = st.text_input(
-        "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
-        key="mobile_label_search",
-    ).strip()
     if not query:
         return
     try:
