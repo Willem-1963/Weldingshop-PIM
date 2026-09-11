@@ -777,69 +777,79 @@ def _show_mobile_labels() -> None:
         "Product zoeken", placeholder="Scan of typ SKU, barcode of productnaam",
         key="mobile_label_search",
     ).strip()
-    st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
-    st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
-    st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
-    template_names = list_templates()
-    remembered_template = st.session_state.get("mobile_label_template", get_mobile_template())
-    if remembered_template not in ["", *template_names]:
-        st.warning(f"Het opgeslagen ontwerp ‘{remembered_template}’ bestaat niet meer. Kies een ander ontwerp; nu wordt het standaardontwerp gebruikt.")
-        remembered_template = ""
-    if st.session_state.get("mobile_label_template") not in ["", *template_names]:
-        st.session_state["mobile_label_template"] = remembered_template
-    template_name = st.selectbox(
-        "Opgeslagen labelontwerp", ["", *template_names],
-        format_func=lambda name: name or "Standaard mobiel label",
-        key="mobile_label_template", on_change=_save_mobile_template_choice,
-    )
-    saved_template = get_template(template_name) if template_name else None
-    st.caption("Je ontwerpkeuze wordt bewaard voor mobiel printen, ook na opnieuw openen van de PIM.")
-    if saved_template and saved_template.get("label_format") != "4 × 6 inch — liggend":
-        st.caption("De velden van dit ontwerp worden voor deze printer op 4 × 6 inch liggend afgedrukt.")
-    queue = PrintQueue()
-    bridge = queue.status()
-    if bridge["online"]:
-        st.success("Printservice verbonden · direct afdrukken beschikbaar")
-    elif bridge["error"]:
-        st.warning(bridge["error"])
-    else:
-        st.info("Printservice nog niet verbonden. Installeer de koppeling op de pc met de USB-printer en laat die pc aanstaan.")
-    st.button("Printerstatus vernieuwen", key="mobile_printer_refresh", width="stretch")
-    with st.expander("Windows-pc koppelen"):
-        st.write("Download dit pakket op de pc met de USB-printer, pak de ZIP uit en open Installeren.cmd. De printservice start daarna automatisch bij aanmelden bij Windows.")
-        if st.button("Installatiepakket voorbereiden", key="mobile_printer_setup"):
-            st.session_state["mobile_printer_installer"] = queue.installer()
-        if st.session_state.get("mobile_printer_installer"):
-            st.download_button("Windows-printservice downloaden", st.session_state["mobile_printer_installer"],
-                               file_name="Weldingshop-PIM-Print.zip", mime="application/zip",
-                               key="mobile_printer_installer_download", width="stretch")
-            st.caption("Dit pakket bevat je persoonlijke printerkoppeling. Deel het niet met anderen.")
-    recent_id = st.session_state.get("mobile_print_job")
-    recent = queue.job(recent_id) if recent_id else None
-    if recent:
-        labels = {"queued": "Wacht op de print-pc", "claimed": "Wordt naar Windows gestuurd",
-                  "submitted": "Aangeboden aan de Windows-afdrukwachtrij",
-                  "expired": "Verlopen: de pc heeft deze opdracht niet binnen 10 minuten opgehaald",
-                  "failed": "Afdrukken mislukt", "uncertain": "Afdrukstatus onzeker: controleer eerst de printer en Windows-wachtrij"}
-        st.info(f"Laatste opdracht: {recent['copies']} label(s) · {labels.get(recent['state'], recent['state'])}")
-        if recent["detail"]:
-            st.caption(recent["detail"])
-        if recent["state"] in {"submitted", "expired", "failed", "uncertain"}:
-            if st.button("Nieuwe afdruk van hetzelfde label toestaan", key="mobile_print_again"):
-                st.session_state.pop("mobile_print_request", None)
-                st.session_state.pop("mobile_print_job", None)
-                recent = None
+    extra_text = st.text_input("Extra tekst", key="mobile_label_text")
+    # Reserve the primary mobile controls before rendering their settings.
+    # Settings still render on every run, including before any early return.
+    action_area = st.container()
+    preview_area = st.container()
+    with st.expander("Labelontwerp en printerinstellingen", expanded=False):
+        st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
+        st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
+        st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
+        template_names = list_templates()
+        remembered_template = st.session_state.get("mobile_label_template", get_mobile_template())
+        if remembered_template not in ["", *template_names]:
+            st.warning(f"Het opgeslagen ontwerp ‘{remembered_template}’ bestaat niet meer. Kies een ander ontwerp; nu wordt het standaardontwerp gebruikt.")
+            remembered_template = ""
+        if st.session_state.get("mobile_label_template") not in ["", *template_names]:
+            st.session_state["mobile_label_template"] = remembered_template
+        template_name = st.selectbox(
+            "Opgeslagen labelontwerp", ["", *template_names],
+            format_func=lambda name: name or "Standaard mobiel label",
+            key="mobile_label_template", on_change=_save_mobile_template_choice,
+        )
+        saved_template = get_template(template_name) if template_name else None
+        st.caption("Je ontwerpkeuze wordt bewaard voor mobiel printen, ook na opnieuw openen van de PIM.")
+        if saved_template and saved_template.get("label_format") != "4 × 6 inch — liggend":
+            st.caption("De velden van dit ontwerp worden voor deze printer op 4 × 6 inch liggend afgedrukt.")
+        queue = PrintQueue()
+        bridge = queue.status()
+        if bridge["online"]:
+            st.success("Printservice verbonden · direct afdrukken beschikbaar")
+        elif bridge["error"]:
+            st.warning(bridge["error"])
+        else:
+            st.info("Printservice nog niet verbonden. Installeer de koppeling op de pc met de USB-printer en laat die pc aanstaan.")
+        st.button("Printerstatus vernieuwen", key="mobile_printer_refresh", width="stretch")
+        with st.expander("Windows-pc koppelen"):
+            st.write("Download dit pakket op de pc met de USB-printer, pak de ZIP uit en open Installeren.cmd. De printservice start daarna automatisch bij aanmelden bij Windows.")
+            if st.button("Installatiepakket voorbereiden", key="mobile_printer_setup"):
+                st.session_state["mobile_printer_installer"] = queue.installer()
+            if st.session_state.get("mobile_printer_installer"):
+                st.download_button("Windows-printservice downloaden", st.session_state["mobile_printer_installer"],
+                                   file_name="Weldingshop-PIM-Print.zip", mime="application/zip",
+                                   key="mobile_printer_installer_download", width="stretch")
+                st.caption("Dit pakket bevat je persoonlijke printerkoppeling. Deel het niet met anderen.")
+        recent_id = st.session_state.get("mobile_print_job")
+        recent = queue.job(recent_id) if recent_id else None
+        if recent:
+            labels = {"queued": "Wacht op de print-pc", "claimed": "Wordt naar Windows gestuurd",
+                      "submitted": "Aangeboden aan de Windows-afdrukwachtrij",
+                      "expired": "Verlopen: de pc heeft deze opdracht niet binnen 10 minuten opgehaald",
+                      "failed": "Afdrukken mislukt", "uncertain": "Afdrukstatus onzeker: controleer eerst de printer en Windows-wachtrij"}
+            st.info(f"Laatste opdracht: {recent['copies']} label(s) · {labels.get(recent['state'], recent['state'])}")
+            if recent["detail"]:
+                st.caption(recent["detail"])
+            if recent["state"] in {"submitted", "expired", "failed", "uncertain"}:
+                if st.button("Nieuwe afdruk van hetzelfde label toestaan", key="mobile_print_again"):
+                    st.session_state.pop("mobile_print_request", None)
+                    st.session_state.pop("mobile_print_job", None)
+                    recent = None
+        quantity = st.number_input(
+            "Aantal labels", min_value=1, max_value=500, value=1, step=1,
+            key="mobile_label_quantity",
+        )
     if not query:
         return
     try:
         matches = _search_all_suppliers(query)
     except Exception as exc:
-        st.error(f"Producten zoeken is niet gelukt: {exc}")
+        preview_area.error(f"Producten zoeken is niet gelukt: {exc}")
         return
     if not matches:
-        st.warning("Geen producten gevonden.")
+        preview_area.warning("Geen producten gevonden.")
         return
-    selected_index = st.selectbox(
+    selected_index = preview_area.selectbox(
         "Product", range(len(matches)),
         format_func=lambda index: _product_choice(matches[index]),
         key="mobile_label_product",
@@ -854,15 +864,11 @@ def _show_mobile_labels() -> None:
         values = shopify_label_values_for_sku(str(product.get("sku") or ""))
         product.update(custom_location=values["custom_location"], ean=values["ean"])
     except Exception as exc:
-        st.warning(f"Actuele Shopify-gegevens niet beschikbaar: {exc}")
-    quantity = st.number_input(
-        "Aantal labels", min_value=1, max_value=500, value=1, step=1,
-        key="mobile_label_quantity",
-    )
-    product["free_label_text"] = st.text_input("Extra tekst", key="mobile_label_text")
+        preview_area.warning(f"Actuele Shopify-gegevens niet beschikbaar: {exc}")
+    product["free_label_text"] = extra_text
     settings = _mobile_template_fields(saved_template)
     if not settings:
-        st.warning("Dit ontwerp heeft geen ingeschakelde velden. Kies een ander ontwerp of pas het aan bij Productlabels.")
+        preview_area.warning("Dit ontwerp heeft geen ingeschakelde velden. Kies een ander ontwerp of pas het aan bij Productlabels.")
         return
     document = build_label_document(
         product, settings, "4 × 6 inch — liggend", int(quantity), mobile=True,
@@ -870,7 +876,7 @@ def _show_mobile_labels() -> None:
     fingerprint = hashlib.sha256(document.encode("utf-8")).hexdigest()
     previous = st.session_state.get("mobile_print_request", {})
     same_job = previous.get("fingerprint") == fingerprint and bool(recent)
-    if st.button("Direct afdrukken", type="primary", width="stretch",
+    if action_area.button("Direct afdrukken", type="primary", width="stretch",
                  key="mobile_direct_print", disabled=not bridge["online"] or same_job):
         try:
             if previous.get("fingerprint") != fingerprint:
@@ -882,10 +888,10 @@ def _show_mobile_labels() -> None:
             st.session_state["mobile_print_job"] = job_id
             st.rerun()
         except Exception as exc:
-            st.error(f"Printopdracht kon niet worden klaargezet: {exc}")
-    st.caption("Direct afdrukken gebruikt de gekoppelde Windows-pc. Via het voorbeeld kun je ook het gewone afdrukvenster gebruiken; kies daar zelf de printer.")
-    components.html(document, height=480, scrolling=True)
-    st.download_button(
+            action_area.error(f"Printopdracht kon niet worden klaargezet: {exc}")
+    with preview_area:
+        components.html(document, height=480, scrolling=True)
+    preview_area.download_button(
         "Labelbestand downloaden", data=document.encode("utf-8"),
         file_name=f"mobiele-labels-{product.get('sku', 'product')}.html",
         mime="text/html", key="mobile_label_download", width="stretch",
