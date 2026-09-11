@@ -164,3 +164,21 @@ def save_active_template(name: str, path: Path = DEFAULT_PATH) -> None:
             """,
             ("active_template", json.dumps(name.strip(), ensure_ascii=False), _now()),
         )
+
+
+def get_mobile_template(path: Path = DEFAULT_PATH) -> str:
+    with _connect(path) as connection:
+        row = connection.execute(
+            "SELECT value_json FROM label_state WHERE key='mobile_template'"
+        ).fetchone()
+    return str(json.loads(row["value_json"]) or "") if row else ""
+
+
+def save_mobile_template(name: str, path: Path = DEFAULT_PATH) -> None:
+    with _connect(path) as connection:
+        connection.execute(
+            """INSERT INTO label_state(key,value_json,updated_at) VALUES(?,?,?)
+               ON CONFLICT(key) DO UPDATE SET
+                 value_json=excluded.value_json,updated_at=excluded.updated_at""",
+            ("mobile_template", json.dumps(name.strip(), ensure_ascii=False), _now()),
+        )

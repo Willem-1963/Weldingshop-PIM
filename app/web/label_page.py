@@ -17,6 +17,7 @@ from app.web.label_store import (
     delete_template,
     get_active_template,
     get_last_settings,
+    get_mobile_template,
     get_template,
     get_workstation,
     list_templates,
@@ -24,6 +25,7 @@ from app.web.label_store import (
     save_template,
     save_active_template,
     save_last_settings,
+    save_mobile_template,
     save_workstation,
 )
 
@@ -743,12 +745,53 @@ def show_label_page(force_reload: bool = False) -> None:
 
 
 
+def _save_mobile_template_choice() -> None:
+    save_mobile_template(st.session_state.get("mobile_label_template", ""))
+
+
+def _mobile_template_fields(saved: dict[str, Any] | None) -> list[FieldSetting]:
+    if saved is None:
+        return [FieldSetting("title", 18, "2 regels", 1),
+                FieldSetting("sku", 12, "1 regel", 2),
+                FieldSetting("ean", 12, "Barcode", 3),
+                FieldSetting("custom_location", 18, "1 regel", 4)]
+    settings = []
+    for index, field in enumerate(FIELD_OPTIONS.values(), start=1):
+        config = (saved.get("fields") or {}).get(field) or {}
+        if not config.get("enabled"):
+            continue
+        display = config.get("display", "1 regel")
+        position = config.get("position", index)
+        settings.append(FieldSetting(
+            field, TEXT_SIZES.get(config.get("size_label"), 12),
+            display if display in DISPLAY_OPTIONS else "1 regel",
+            position if position in range(1, len(FIELD_OPTIONS) + 1) else index,
+        ))
+    return settings
+
+
 def _show_mobile_labels() -> None:
     from app.web.label_print import PrintQueue, render_label_png
 
     st.caption("Snel productlabels afdrukken vanaf je telefoon of tablet.")
     st.selectbox("Printervoorkeur", ["gprinter gp-1324d"], key="mobile_label_printer")
     st.caption("Papier: 4 × 6 inch · Afdrukstand: liggend")
+    template_names = list_templates()
+    remembered_template = st.session_state.get("mobile_label_template", get_mobile_template())
+    if remembered_template not in ["", *template_names]:
+        st.warning(f"Het opgeslagen ontwerp ‘{remembered_template}’ bestaat niet meer. Kies een ander ontwerp; nu wordt het standaardontwerp gebruikt.")
+        remembered_template = ""
+    if st.session_state.get("mobile_label_template") not in ["", *template_names]:
+        st.session_state["mobile_label_template"] = remembered_template
+    template_name = st.selectbox(
+        "Opgeslagen labelontwerp", ["", *template_names],
+        format_func=lambda name: name or "Standaard mobiel label",
+        key="mobile_label_template", on_change=_save_mobile_template_choice,
+    )
+    saved_template = get_template(template_name) if template_name else None
+    st.caption("Je ontwerpkeuze wordt bewaard voor mobiel printen, ook na opnieuw openen van de PIM.")
+    if saved_template and saved_template.get("label_format") != "4 × 6 inch — liggend":
+        st.caption("De velden van dit ontwerp worden voor deze printer op 4 × 6 inch liggend afgedrukt.")
     queue = PrintQueue()
     bridge = queue.status()
     if bridge["online"]:
@@ -817,12 +860,10 @@ def _show_mobile_labels() -> None:
         key="mobile_label_quantity",
     )
     product["free_label_text"] = st.text_input("Extra tekst", key="mobile_label_text")
-    settings = [
-        FieldSetting("title", 18, "2 regels", 1),
-        FieldSetting("sku", 12, "1 regel", 2),
-        FieldSetting("ean", 12, "Barcode", 3),
-        FieldSetting("custom_location", 18, "1 regel", 4),
-    ]
+    settings = _mobile_template_fields(saved_template)
+    if not settings:
+        st.warning("Dit ontwerp heeft geen ingeschakelde velden. Kies een ander ontwerp of pas het aan bij Productlabels.")
+        return
     document = build_label_document(
         product, settings, "4 × 6 inch — liggend", int(quantity), mobile=True,
     )

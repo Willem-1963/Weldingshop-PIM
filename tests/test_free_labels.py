@@ -6,9 +6,13 @@ from app.web.label_page import LABEL_FORMATS, build_free_label_document
 
 @pytest.fixture(autouse=True)
 def isolated_print_queue(monkeypatch, tmp_path):
-    from app.web import label_print
+    from app.web import label_print, label_page, label_store
     queue = label_print.PrintQueue(tmp_path / "print.sqlite")
     monkeypatch.setattr(label_print, "PrintQueue", lambda: queue)
+    settings_path = tmp_path / "labels.sqlite"
+    monkeypatch.setattr(label_page, "get_mobile_template", lambda: label_store.get_mobile_template(settings_path))
+    monkeypatch.setattr(label_page, "save_mobile_template", lambda name: label_store.save_mobile_template(name, settings_path))
+    monkeypatch.setattr(label_page, "list_templates", lambda: label_store.list_templates(settings_path))
     return queue
 
 
@@ -202,3 +206,39 @@ _show_mobile_labels()
     assert app.button(key="mobile_direct_print").disabled
     app.button(key="mobile_print_again").click().run()
     assert not app.button(key="mobile_direct_print").disabled
+
+
+def test_mobile_template_survives_new_session_and_controls_preview(monkeypatch):
+    from app.web import label_page as page
+    designs = {
+        "Prijslabel": {"label_format": "DYMO 11354 — 57 × 32 mm", "fields": {
+            "price": {"enabled": True, "size_label": "Kop — 40 pt", "display": "1 regel", "position": 1},
+            "title": {"enabled": True, "size_label": "Groot — 18 pt", "display": "2 regels", "position": 2},
+        }},
+        "SKU-label": {"fields": {"sku": {"enabled": True, "display": "Barcode", "position": 1}}},
+    }
+    monkeypatch.setattr(page, "list_templates", lambda: list(designs))
+    monkeypatch.setattr(page, "get_template", lambda name: designs.get(name))
+    monkeypatch.setattr(page, "_search_all_suppliers", lambda query: [
+        {"sku": query, "supplier": "Test", "source_title": "Testartikel", "sale_price": 25},
+    ])
+    monkeypatch.setattr(page, "shopify_label_values_for_sku", lambda sku: {"custom_location": "A-1", "ean": ""})
+    documents = []
+    monkeypatch.setattr(page.components, "html", lambda document, **kwargs: documents.append(document))
+    script = 'from app.web.label_page import _show_mobile_labels\n_show_mobile_labels()'
+    app = AppTest.from_string(script).run()
+    app.selectbox(key="mobile_label_template").set_value("Prijslabel").run()
+    assert page.get_mobile_template() == "Prijslabel"
+    app.text_input(key="mobile_label_search").set_value("FIRST").run()
+    assert not app.exception
+    assert 'font-size:40pt' in documents[-1]
+    assert documents[-1].index('€ 25,00') < documents[-1].index('Testartikel')
+    assert '@page { size: 6in 4in;' in documents[-1]
+    app.number_input(key="mobile_label_quantity").set_value(2).run()
+    app.text_input(key="mobile_label_search").set_value("SECOND").run()
+    assert app.selectbox(key="mobile_label_template").value == "Prijslabel"
+    fresh = AppTest.from_string(script).run()
+    assert fresh.selectbox(key="mobile_label_template").value == "Prijslabel"
+    fresh.selectbox(key="mobile_label_template").set_value("SKU-label").run()
+    assert page.get_mobile_template() == "SKU-label"
+    assert AppTest.from_string(script).run().selectbox(key="mobile_label_template").value == "SKU-label"
