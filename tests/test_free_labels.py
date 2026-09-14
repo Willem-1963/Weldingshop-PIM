@@ -242,3 +242,36 @@ def test_mobile_template_survives_new_session_and_controls_preview(monkeypatch):
     fresh.selectbox(key="mobile_label_template").set_value("SKU-label").run()
     assert page.get_mobile_template() == "SKU-label"
     assert AppTest.from_string(script).run().selectbox(key="mobile_label_template").value == "SKU-label"
+
+
+def test_mobile_barcode_and_stock_save_and_reload(monkeypatch):
+    from app.web import label_page as page
+    stored = {"custom_location": "B-12", "ean": "2900000000008", "inventory_quantity": 4}
+    calls = []
+    monkeypatch.setattr(page, "_search_all_suppliers", lambda query: [
+        {"sku": "MOB-SAVE", "supplier": "Test", "source_title": "Mobiel product"},
+    ])
+    monkeypatch.setattr(page, "shopify_label_values_for_sku", lambda sku: dict(stored))
+
+    def save(sku, location, quantity, ean):
+        calls.append((sku, location, quantity, ean))
+        stored.update(custom_location=location, ean=ean, inventory_quantity=quantity)
+        return dict(stored)
+
+    monkeypatch.setattr(page, "save_shopify_label_values_for_sku", save)
+    script = 'from app.web.label_page import _show_mobile_labels\n_show_mobile_labels()'
+    app = AppTest.from_string(script).run()
+    app.text_input(key="mobile_label_search").set_value("MOB-SAVE").run()
+    app.text_input(key="mobile_location_MOB-SAVE").set_value("C-24")
+    app.text_input(key="mobile_ean_MOB-SAVE").set_value("2900000000015")
+    app.number_input(key="mobile_inventory_MOB-SAVE").set_value(7)
+    next(button for button in app.button if button.label == "Locatie, barcode en voorraad opslaan").click().run()
+    assert not app.exception
+    assert calls == [("MOB-SAVE", "C-24", 7, "2900000000015")]
+    assert any("zijn opgeslagen" in item.value for item in app.success)
+    fresh = AppTest.from_string(script).run()
+    fresh.text_input(key="mobile_label_search").set_value("MOB-SAVE").run()
+    assert fresh.text_input(key="mobile_location_MOB-SAVE").value == "C-24"
+    assert fresh.text_input(key="mobile_ean_MOB-SAVE").value == "2900000000015"
+    assert fresh.number_input(key="mobile_inventory_MOB-SAVE").value == 7
+    assert any("Voorraad bijboeken gaat via de factuur" in item.value for item in fresh.warning)

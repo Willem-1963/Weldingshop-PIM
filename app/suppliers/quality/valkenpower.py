@@ -40,9 +40,19 @@ class ValkenpowerQualityPolicy(SupplierQualityPolicy):
     def validation_errors(
         self, product: dict[str, Any], description: str, tags: list[str],
     ) -> list[str]:
-        evidence = (product.get("_raw_data") or {}).get(
-            "valkenpower_category_evidence"
-        ) or {}
+        raw = product.get("_raw_data") or {}
+        imported = raw.get("category_file_import") or {}
+        values = imported.get("values") or {}
+        if imported.get("locked") and str(values.get("product_group_name") or "").strip():
+            return []
+        approval = raw.get("manual_category_review") or {}
+        if (
+            approval.get("approved") is True
+            and approval.get("sku") == product.get("sku")
+            and approval.get("reviewed_at")
+        ):
+            return []
+        evidence = raw.get("valkenpower_category_evidence") or {}
         if (
             evidence.get("method") != "official_product_page_breadcrumb"
             or not evidence.get("hierarchy")

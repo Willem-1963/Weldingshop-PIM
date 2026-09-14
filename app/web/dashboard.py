@@ -45,12 +45,15 @@ from app.suppliers.hub import (
     save_unified_source_mappings,
     save_shopify_export,
     save_supplier,
+    save_supplier_priority,
+    supplier_priority_rule,
     search_supplier_products,
     shopify_csv_bytes,
     suggest_source_field_mapping,
     supplier_stats,
     supplier_database_cleanup_preview,
 )
+from app.web.shared_files import render_shared_files
 from app.suppliers.invoice_catalog import (
     invoice_evidence_counts,
     list_product_invoice_evidence,
@@ -3495,6 +3498,7 @@ with sales_tab:
 
 
 with source_tab:
+    render_shared_files(selected_slug)
     (
         source_setup_subtab,
         source_analysis_subtab,
@@ -4118,16 +4122,32 @@ with source_setup_subtab:
 with source_inventory_subtab:
     st.markdown("#### Voorraad en productstatus")
     st.caption(
-        "Kies zelf welke bronwaarden beschikbaar of juist niet beschikbaar "
-        "betekenen. Voor beschikbare producten wordt het onderstaande aantal "
-        "als Shopify-voorraad gebruikt. "
+        "Kies of de beschikbaarheid uit Shopify of uit de leverancierssynchronisatie komt. "
         "Een ontbrekende of niet-positieve verkoopprijs of een ontbrekende "
         "goedgekeurde productfoto blijft altijd Concept."
     )
+    stock_options = supplier.get("request_options") or {}
+    inventory_source = st.radio(
+        "Voorraadbron",
+        ["sync", "shopify"],
+        index=1 if stock_options.get("inventory_source") == "shopify" else 0,
+        format_func=lambda value: (
+            "Voorraad uit Shopify gebruiken" if value == "shopify"
+            else "Voorraad lezen uit de synchronisatie"
+        ),
+        key=f"inventory_source_{selected_slug}",
+        help="Kies waar de voorraad voor de productstatus vandaan komt.",
+    )
+    if inventory_source == "shopify":
+        st.info(
+            "De actuele voorraad van het gekozen Shopify-magazijn bepaalt de "
+            "beschikbaarheid. De synchronisatie overschrijft deze voorraad niet. "
+            "Optie 2 onder 7.1 laat ook voorraad op andere locaties meetellen."
+        )
     supplier_stock_field = (
         (supplier.get("field_mapping") or {}).get("stock") or ""
     )
-    if not supplier_stock_field:
+    if not supplier_stock_field and inventory_source == "sync":
         st.info(
             "Deze leverancier heeft geen voorraadveld. Het onderstaande aantal "
             "wordt daarom als aangenomen voorraad gebruikt voor artikelen met "
@@ -4183,7 +4203,7 @@ with source_inventory_subtab:
         }
     inventory_location_options = ["", *inventory_location_by_id]
     selected_inventory_location_id = st.selectbox(
-        "Shopify-magazijn voor voorraadsynchronisatie *",
+        "Shopify-magazijn voor voorraad *",
         inventory_location_options,
         index=(
             inventory_location_options.index(
@@ -4201,8 +4221,8 @@ with source_inventory_subtab:
             )
         ),
         help=(
-            "Alle voorraadwaarden van deze leverancier worden uitsluitend "
-            "naar deze actieve Shopify-locatie geschreven."
+            "Bij Shopify als bron wordt hier voorraad gelezen. Bij synchronisatie "
+            "als bron worden voorraadwaarden naar deze locatie geschreven."
         ),
         key=f"inventory_location_{selected_slug}",
     )
@@ -4214,6 +4234,7 @@ with source_inventory_subtab:
     with st.container():
         st.markdown("##### Actie per voorraadstatus van de leverancier")
         st.caption(
+            "Deze bronstatusregels gelden alleen bij voorraad uit de synchronisatie. "
             "Kies per bronstatus of deze op het geselecteerde Shopify-magazijn "
             "als Actief of Concept moet worden verwerkt."
         )
@@ -4260,7 +4281,7 @@ with source_inventory_subtab:
             hide_index=True,
             width="stretch",
             num_rows="dynamic",
-            disabled=not supplier_stock_field,
+            disabled=not supplier_stock_field or inventory_source == "shopify",
             column_config={
                 "Bronwaarde": st.column_config.TextColumn(
                     "Waarde uit leveranciersbron",
@@ -4294,16 +4315,7 @@ with source_inventory_subtab:
             max_value=1_000_000,
             value=int(supplier.get("available_stock_quantity") or 1),
             step=1,
-        )
-        draft_only_when_no_location_stock = st.checkbox(
-            "Alleen op Concept zetten als op geen enkele voorraadlocatie voorraad is",
-            value=bool(stock_options.get(
-                "draft_only_when_no_location_stock", False
-            )),
-            help=(
-                "Controleert ook andere Shopify-locaties, zoals Weldingshop. "
-                "Het product blijft actief zolang ergens voorraad aanwezig is."
-            ),
+            disabled=inventory_source == "shopify",
         )
         current_availability_actions = {
             str(row.get("Bronwaarde") or "").strip():
@@ -4321,14 +4333,12 @@ with source_inventory_subtab:
             if str(value).strip()
         }
         inventory_settings_changed = any((
+            inventory_source != stock_options.get("inventory_source", "sync"),
             selected_inventory_location_id
             != configured_inventory_location_id,
             int(available_stock_quantity)
             != int(supplier.get("available_stock_quantity") or 1),
             current_availability_actions != stored_availability_actions,
-            bool(draft_only_when_no_location_stock) != bool(
-                stock_options.get("draft_only_when_no_location_stock", False)
-            ),
         ))
         inventory_button_key = f"save_inventory_{selected_slug}"
         save_inventory = st.button(
@@ -4352,12 +4362,15 @@ with source_inventory_subtab:
             selected_slug,
             int(available_stock_quantity),
             inventory_location_id=selected_inventory_location_id,
-            availability_mode="value_actions",
+            inventory_source=inventory_source,
+            availability_mode="value_actions" if inventory_source == "sync" else None,
             availability_actions=current_availability_actions,
-            draft_only_when_no_location_stock=draft_only_when_no_location_stock,
             keep_active_when_out_of_stock=False,
         )
         st.success(
+            "Voorraadbron opgeslagen. Shopify-voorraad wordt bij de volgende "
+            "Shopify-synchronisatie gelezen."
+            if inventory_source == "shopify" else
             f"Voorraadregel toegepast op {result['updated']} producten. "
             f"Beschikbaar aantal: {result['available_quantity']}."
         )
@@ -4613,18 +4626,20 @@ with source_sync_subtab:
     (
         source_missing_products_tab,
         source_continue_selling_tab,
+        source_priority_tab,
         source_sync_planning_tab,
     ) = st.tabs([
         "7.1 Producten uit de bron verwijderen",
         "7.2 Doorgaan of stoppen met verkopen",
-        "7.3 Synchronisatie planning",
+        "7.3 Voorrangregels",
+        "7.4 Synchronisatie planning",
     ])
 
 
 with source_missing_products_tab:
     st.markdown("#### Producten die uit de bron verdwijnen")
     st.caption(
-        "Deze regel geldt uitsluitend voor producten die eerder met een exacte SKU "
+        "De eerste regel geldt uitsluitend voor producten die eerder met een exacte SKU "
         "voor deze leverancier zijn geïmporteerd. Als een SKU terugkomt, vervalt de "
         "lopende verwijdertermijn automatisch."
     )
@@ -4633,6 +4648,16 @@ with source_missing_products_tab:
             "Producten in Shopify die niet in de leveranciersbron staan en "
             "geen voorraad hebben op locatie Weldingshop op Concept zetten",
             value=bool(supplier.get("missing_products_to_draft", 1)),
+        )
+        draft_only_when_no_location_stock = st.checkbox(
+            "Alleen op Concept zetten als op geen enkele voorraadlocatie voorraad is",
+            value=bool(stock_options.get(
+                "draft_only_when_no_location_stock", False
+            )),
+            help=(
+                "Controleert ook andere Shopify-locaties, zoals Weldingshop. "
+                "Het product blijft actief zolang ergens voorraad aanwezig is."
+            ),
         )
         delete_missing = st.checkbox(
             "Product na de bewaartermijn definitief uit Shopify verwijderen",
@@ -4647,15 +4672,16 @@ with source_missing_products_tab:
             step=1,
             disabled=not delete_missing,
         )
-        save_missing_policy = st.form_submit_button("Regel voor ontbrekende producten opslaan")
+        save_missing_policy = st.form_submit_button("Regels opslaan")
     if save_missing_policy:
         save_missing_product_policy(
             selected_slug,
             draft_missing=draft_missing,
             delete_missing=delete_missing,
             delete_after_months=int(delete_after_months),
+            draft_only_when_no_location_stock=draft_only_when_no_location_stock,
         )
-        st.success("Regel voor ontbrekende producten opgeslagen.")
+        st.success("Regels opgeslagen. Ze worden bij de volgende Shopify-synchronisatie toegepast.")
         st.rerun()
 
 
@@ -4746,7 +4772,7 @@ with source_continue_selling_tab:
                     or collection_id
                 ),
                 "Instelling": (
-                    "Gehele collectie uitsluiten"
+                    "Gehele collectie op Concept houden"
                     if stored_rule.get("exclude")
                     else "Aan · doorgaan met verkopen"
                     if stored_rule.get("continue_selling", True)
@@ -4769,7 +4795,7 @@ with source_continue_selling_tab:
                     options=[
                         "Aan · doorgaan met verkopen",
                         "Uit · stoppen bij voorraad 0",
-                        "Gehele collectie uitsluiten",
+                        "Gehele collectie op Concept houden",
                     ],
                     required=True,
                 ),
@@ -4779,7 +4805,7 @@ with source_continue_selling_tab:
         )
         st.caption(
             "Veilige conflictregel: staat een product in meerdere gekozen "
-            "collecties, dan heeft ‘Gehele collectie uitsluiten’ voorrang, "
+            "collecties, dan heeft ‘Gehele collectie op Concept houden’ voorrang, "
             "daarna ‘Uit’ en daarna ‘Aan’."
         )
         delivery_time_notice_text = st.text_input(
@@ -4806,7 +4832,7 @@ with source_continue_selling_tab:
                     row.get("Instelling") == "Aan · doorgaan met verkopen"
                 ),
                 "exclude": (
-                    row.get("Instelling") == "Gehele collectie uitsluiten"
+                    row.get("Instelling") == "Gehele collectie op Concept houden"
                 ),
             }
             for row in collection_rule_editor.to_dict("records")
@@ -4829,6 +4855,41 @@ with source_continue_selling_tab:
             f"{len(collection_rules)} collectieregels zijn opgeslagen. "
             "Ze worden bij de eerstvolgende synchronisatie toegepast."
         )
+        st.rerun()
+
+
+with source_priority_tab:
+    st.markdown("#### Voorrangregels")
+    st.caption(
+        "Bij hetzelfde artikelnummer krijgt de gekozen leverancier voorrang, "
+        "mits het product van die leverancier al in Shopify staat. Bij Valkenpower "
+        "vergelijken we zonder VP-. Overeenkomende producten van deze leverancier "
+        "worden niet gepubliceerd; bestaande producten krijgen de gekozen status "
+        "bij de eerstvolgende synchronisatie. Shopify past de status toe op het hele product."
+    )
+    priority_rule = supplier_priority_rule(supplier)
+    priority_suppliers = {item["slug"]: item["name"] for item in list_suppliers()
+                          if item["slug"] != selected_slug}
+    priority_options = ["", *priority_suppliers]
+    current_priority = priority_rule.get("supplier_slug", "")
+    if current_priority and current_priority not in priority_options:
+        priority_options.append(current_priority)
+    with st.form(f"supplier_priority_{selected_slug}"):
+        preferred_supplier = st.selectbox(
+            "Selecteer de leverancier die voorrang heeft op deze leverancier",
+            priority_options, index=priority_options.index(current_priority),
+            format_func=lambda value: priority_suppliers.get(value, value) if value else "Geen voorrangregel",
+        )
+        priority_status = st.radio(
+            "Zet deze leveranciersproducten op", ["DRAFT", "ARCHIVED"],
+            index=1 if priority_rule.get("status") == "ARCHIVED" else 0,
+            format_func=lambda value: "Concept" if value == "DRAFT" else "Archief",
+            horizontal=True,
+        )
+        save_priority = st.form_submit_button("Voorrangregel opslaan")
+    if save_priority:
+        save_supplier_priority(selected_slug, preferred_supplier, priority_status)
+        st.success("Voorrangregel opgeslagen. Wordt bij de eerstvolgende synchronisatie toegepast.")
         st.rerun()
 
 

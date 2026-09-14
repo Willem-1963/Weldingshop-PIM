@@ -771,6 +771,24 @@ def _mobile_template_fields(saved: dict[str, Any] | None) -> list[FieldSetting]:
 
 
 def _show_mobile_labels() -> None:
+    st.markdown("""<style>
+    @media (max-width: 768px) {
+      .st-key-mobile_labels [data-testid="stVerticalBlock"] { gap: .45rem; }
+      .st-key-mobile_labels [data-testid="stWidgetLabel"] p,
+      .st-key-mobile_labels button p,
+      .st-key-mobile_labels [data-testid="stAlert"] p { font-size: .8rem; }
+      .st-key-mobile_labels input { font-size: 14px; padding: .25rem .5rem; }
+      .st-key-mobile_labels [data-baseweb="input"],
+      .st-key-mobile_labels [data-baseweb="select"] > div { min-height: 2rem; }
+      .st-key-mobile_labels button { min-height: 2rem; padding: .25rem .5rem; }
+      .st-key-mobile_labels [data-testid="stForm"] { padding: .5rem; }
+    }
+    </style>""", unsafe_allow_html=True)
+    with st.container(key="mobile_labels"):
+        _render_mobile_labels()
+
+
+def _render_mobile_labels() -> None:
     from app.web.label_print import PrintQueue, render_label_png
 
     query = st.text_input(
@@ -787,6 +805,8 @@ def _show_mobile_labels() -> None:
         )
     # Reserve the primary mobile controls before rendering their settings.
     # Settings still render on every run, including before any early return.
+    product_area = st.container()
+    edit_area = st.container()
     action_area = st.container()
     preview_area = st.container()
     with st.expander("Labelontwerp en printerinstellingen", expanded=False):
@@ -852,7 +872,7 @@ def _show_mobile_labels() -> None:
     if not matches:
         preview_area.warning("Geen producten gevonden.")
         return
-    selected_index = preview_area.selectbox(
+    selected_index = product_area.selectbox(
         "Product", range(len(matches)),
         format_func=lambda index: _product_choice(matches[index]),
         key="mobile_label_product",
@@ -863,11 +883,46 @@ def _show_mobile_labels() -> None:
         if selected.get("supplier_slug") else None
     ) or selected)
     product["supplier"] = selected.get("supplier", "")
+    values = None
     try:
         values = shopify_label_values_for_sku(str(product.get("sku") or ""))
         product.update(custom_location=values["custom_location"], ean=values["ean"])
     except Exception as exc:
         preview_area.warning(f"Actuele Shopify-gegevens niet beschikbaar: {exc}")
+    if values is not None:
+        sku = str(product.get("sku") or "")
+        with edit_area.form(f"mobile_product_settings_{sku}"):
+            location_input = st.text_input(
+                "Locatiecode", value=str(values.get("custom_location") or ""),
+                key=f"mobile_location_{sku}",
+            )
+            ean_input = st.text_input(
+                "Barcode / EAN", value=str(values.get("ean") or ""),
+                key=f"mobile_ean_{sku}",
+            )
+            inventory_quantity = st.number_input(
+                "Actuele voorraad", min_value=0, max_value=100000,
+                value=max(0, int(values.get("inventory_quantity", 0))), step=1,
+                key=f"mobile_inventory_{sku}",
+            )
+            st.warning(
+                "Let op: vul alleen de actuele voorraad in. "
+                "Voorraad bijboeken gaat via de factuur."
+            )
+            save_values = st.form_submit_button("Locatie, barcode en voorraad opslaan", width="stretch")
+        if save_values:
+            try:
+                saved = save_shopify_label_values_for_sku(
+                    sku, location_input,
+                    int(inventory_quantity), ean_input,
+                )
+                product["ean"] = saved["ean"]
+                product["custom_location"] = saved["custom_location"]
+                edit_area.success(
+                    f"Locatiecode, barcode en actuele voorraad ({saved['inventory_quantity']}) zijn opgeslagen."
+                )
+            except Exception as exc:
+                edit_area.error(f"Gegevens konden niet worden opgeslagen: {exc}")
     product["free_label_text"] = extra_text
     settings = _mobile_template_fields(saved_template)
     if not settings:

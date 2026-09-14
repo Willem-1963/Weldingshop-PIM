@@ -29,11 +29,13 @@ from app.shopify.client import (
 from app.suppliers.hub import (
     apply_source_transformations,
     get_supplier,
+    supplier_priority_rule,
     _stock_stays_active_at_zero,
     supplier_database_path,
 )
 from app.suppliers.quality import quality_policy_for
 from app.suppliers.routes import supplier_route
+from app.suppliers.category_locks import locked_metafields
 
 
 Progress = Callable[[int, str], None]
@@ -690,6 +692,9 @@ def _sync_record_hash(
             supplier.get("sync_new_product_policy") or "existing_only"
         ),
         "publish_all": bool(supplier.get("sync_publish_all", 1)),
+        "inventory_source": (supplier.get("request_options") or {}).get(
+            "inventory_source", "sync"
+        ),
         "continue_selling_when_out_of_stock": bool(
             (supplier.get("request_options") or {}).get(
                 "continue_selling_when_out_of_stock", False
@@ -1246,6 +1251,51 @@ def _inventory_items_with_stock_at_location(
             ):
                 stocked.add(str(item["id"]))
     return stocked
+
+
+def _apply_shopify_stock_availability(
+    client: ShopifyClient, products: list[dict[str, Any]],
+    existing: dict[str, Any], location_id: str,
+) -> None:
+    matches = {
+        str(product["sku"]).upper(): existing.get(str(product["sku"]).upper())
+        for product in products
+    }
+    stocked = _inventory_items_with_stock_at_location(
+        client,
+        list({match["variant"]["inventoryItem"]["id"]
+              for match in matches.values() if match}),
+        location_id,
+    )
+    for product in products:
+        match = matches[str(product["sku"]).upper()]
+        product["available"] = bool(
+            match and match["variant"]["inventoryItem"]["id"] in stocked
+        )
+        # Feed status actions must not override actual Shopify stock.
+        product["_keep_active_when_out_of_stock"] = False
+
+
+def _stock_protected_missing_items(
+    client: ShopifyClient, inventory_item_ids: list[str], *,
+    protect_all_locations: bool,
+) -> set[str]:
+    """Protect missing products independently of the supplier's stock location."""
+    if not inventory_item_ids:
+        return set()
+    if protect_all_locations:
+        return _inventory_items_with_stock_elsewhere(client, inventory_item_ids, "")
+    locations = client.shop_and_locations().get("locations", {}).get("nodes", [])
+    matches = [
+        str(location["id"]) for location in locations
+        if str(location.get("name") or "").strip().casefold() == "weldingshop"
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "Voorraadlocatie Weldingshop kon niet eenduidig worden gevonden. "
+            "Ontbrekende producten worden niet op Concept gezet of verwijderd."
+        )
+    return _inventory_items_with_stock_at_location(client, inventory_item_ids, matches[0])
 
 
 def _months_ago(value: datetime, months: int) -> datetime:
@@ -1959,6 +2009,17 @@ def _input(
         (item["namespace"], item["key"]): item
         for item in [*base_metafields, *configured_product_metafields]
     }
+    # Approved file imports win over derived values and configured mappings,
+    # including explicitly empty levels (which must not be reintroduced).
+    approved_categories = locked_metafields(product)
+    if approved_categories is not None:
+        for key, value in approved_categories.items():
+            merged_metafields.pop(("custom", key), None)
+            if value:
+                merged_metafields[("custom", key)] = {
+                    "namespace": "custom", "key": key,
+                    "type": "single_line_text_field", "value": value,
+                }
     result["metafields"] = _set_product_delivery_notice(
         list(merged_metafields.values()),
         str(product.get("_delivery_time_notice") or ""),
@@ -2507,6 +2568,89 @@ def _apply_collection_inventory_policies(
     return updated
 
 
+def _draft_excluded_collections(client: ShopifyClient, supplier: dict[str, Any]) -> set[str]:
+    """Set every excluded collection member to draft, including non-supplier SKUs."""
+    products = {}
+    for rule in (supplier.get("request_options") or {}).get("continue_selling_collection_rules") or []:
+        if not rule.get("exclude") or not rule.get("collection_id"):
+            continue
+        cursor = None
+        while True:
+            data = client.graphql(
+                """query ExcludedCollection($id:ID!,$after:String){
+                  collection(id:$id){products(first:100,after:$after){
+                    nodes{id status} pageInfo{hasNextPage endCursor}
+                  }}
+                }""", {"id": rule["collection_id"], "after": cursor},
+            )
+            if data.get("collection") is None:
+                raise ValueError("Uitgesloten collectie niet gevonden; synchronisatie gestopt")
+            connection = data["collection"]["products"]
+            for product in connection["nodes"]:
+                products[product["id"]] = product["status"]
+            page = connection["pageInfo"]
+            if not page["hasNextPage"]:
+                break
+            next_cursor = page.get("endCursor")
+            if not next_cursor or next_cursor == cursor:
+                raise ValueError("Collectie kon niet volledig worden gelezen")
+            cursor = next_cursor
+    for product_id, status in products.items():
+        if status == "DRAFT":
+            continue
+        result = client.graphql(
+            """mutation DraftExcludedProduct($input:ProductInput!){
+              productUpdate(input:$input){product{id status} userErrors{field message}}
+            }""", {"input": {"id": product_id, "status": "DRAFT"}},
+        )["productUpdate"]
+        if result.get("userErrors"):
+            raise RuntimeError(str(result["userErrors"]))
+        if (result.get("product") or {}).get("status") != "DRAFT":
+            raise RuntimeError("Conceptstatus van uitgesloten product niet bevestigd")
+    return set(products)
+
+
+def _without_excluded_products(products, existing, excluded_ids, excluded_skus):
+    return [product for product in products
+            if str(product.get("sku") or "").upper() not in excluded_skus
+            and ((existing.get(str(product.get("sku") or "").upper()) or {}).get("product") or {}).get("id") not in excluded_ids]
+
+
+def _priority_matches(slug, source, existing, preferred, preferred_name, status):
+    if status not in {"DRAFT", "ARCHIVED"}:
+        raise ValueError("Ongeldige productstatus voor voorrangregel.")
+    def article(value):
+        value = str(value or "").strip().upper()
+        return value.removeprefix("VP-") if slug == "valkenpower" else value
+    preferred_by_sku = {str(m["variant"].get("sku") or "").strip().upper(): m
+                        for m in preferred.values() if m["variant"].get("sku")}
+    candidates = {str(p.get("sku") or "").strip().upper(): p for p in source}
+    for sku in existing:
+        candidates.setdefault(sku, {"sku": sku})
+    blocked = set()
+    product_ids = set()
+    details = []
+    for sku, product in candidates.items():
+        match = preferred_by_sku.get(article(product.get("supplier_sku") or sku))
+        if not match:
+            continue
+        current = existing.get(sku)
+        if current and current["product"]["id"] == match["product"]["id"]:
+            continue
+        blocked.add(sku)
+        if current:
+            product_ids.add(current["product"]["id"])
+        details.append({"sku": sku, "preferred_vendor": preferred_name,
+                        "preferred_sku": match["variant"]["sku"],
+                        "preferred_product_id": match["product"]["id"], "status": status})
+    # Shopify status applies to every variant; prevent sibling reactivation.
+    blocked.update(sku for sku, m in existing.items() if m["product"]["id"] in product_ids)
+    rows = [{"input": {"id": pid, "status": status}} for pid in sorted(product_ids)
+            if any(m["product"]["id"] == pid and m["product"].get("status") != status
+                   for m in existing.values())]
+    return blocked, rows, details
+
+
 def sync_all_products(
     slug: str, progress_callback: Progress | None = None
 ) -> dict[str, Any]:
@@ -2514,6 +2658,9 @@ def sync_all_products(
     if not settings.get("enabled"):
         raise ValueError("Shopify-synchronisatietoestemming staat uit.")
     supplier = get_supplier(slug) or {}
+    use_shopify_stock = (
+        (supplier.get("request_options") or {}).get("inventory_source") == "shopify"
+    )
     location_id = _selected_inventory_location(supplier, settings)
     if not location_id:
         raise ValueError("Shopify-voorraadlocatie ontbreekt.")
@@ -2533,6 +2680,7 @@ def sync_all_products(
         )
     )
     _apply_collection_inventory_policies(client, supplier)
+    excluded_product_ids = _draft_excluded_collections(client, supplier)
     collection_continue_skus, collection_deny_skus, collection_excluded_skus = (
         _collection_inventory_policy_skus(client, supplier)
     )
@@ -2597,7 +2745,7 @@ def sync_all_products(
         )
     )
     changed_only = bool(supplier.get("sync_changed_only"))
-    if changed_only:
+    if changed_only and not use_shopify_stock:
         source = selected_source
         change_details = detected_changes
         if (supplier.get("request_options") or {}).get(
@@ -2612,61 +2760,39 @@ def sync_all_products(
             {"sku": product["sku"], "reason": "Volledige synchronisatie"}
             for product in all_source
         ]
-    preferred_vendor_duplicates: list[dict[str, str]] = []
-    if slug == "valkenpower":
-        _progress(
-            progress_callback, 2,
-            "Rhodius-voorrang op gelijke SKU's controleren…",
-        )
-        rhodius_products = _shopify_products(client, "Rhodius")
-        rhodius_by_sku = {
-            str(match["variant"].get("sku") or "").strip().upper(): {
-                "sku": str(match["variant"].get("sku") or ""),
-                "product_id": str(match["product"].get("id") or ""),
-            }
-            for match in rhodius_products.values()
-            if str(match["variant"].get("sku") or "").strip()
-        }
-        preferred_vendor_duplicates = [
-            {
-                "sku": str(product.get("sku") or ""),
-                "matched_on": "exact_supplier_sku",
-                "preferred_vendor": "Rhodius",
-                "preferred_sku": rhodius_by_sku[
-                    str(
-                        product.get("supplier_sku")
-                        or product.get("sku")
-                        or ""
-                    ).strip().upper().removeprefix("VP-")
-                ]["sku"],
-                "preferred_product_id": rhodius_by_sku[
-                    str(
-                        product.get("supplier_sku")
-                        or product.get("sku")
-                        or ""
-                    ).strip().upper().removeprefix("VP-")
-                ]["product_id"],
-            }
-            for product in source
-            if str(
-                product.get("supplier_sku")
-                or product.get("sku")
-                or ""
-            ).strip().upper().removeprefix("VP-") in rhodius_by_sku
-        ]
-        duplicate_skus = {
-            item["sku"].upper() for item in preferred_vendor_duplicates
-        }
-        source = [
-            product for product in source
-            if str(product.get("sku") or "").upper() not in duplicate_skus
-        ]
-    priced = [product for product in source if _has_valid_price(product)]
-    unpriced = [product for product in source if not _has_valid_price(product)]
     _progress(progress_callback, 2, "Bestaande Shopify-SKU’s inventariseren…")
     existing = _shopify_products(
         client, vendor, slug, progress_callback=progress_callback
     )
+    source = _without_excluded_products(source, existing, excluded_product_ids, collection_excluded_skus)
+    missing_source = _without_excluded_products(missing_source, existing, excluded_product_ids, collection_excluded_skus)
+    priority = supplier_priority_rule({**supplier, "slug": slug})
+    preferred_vendor_duplicates: list[dict[str, str]] = []
+    preferred_slug = priority.get("supplier_slug")
+    if preferred_slug:
+        preferred = get_supplier(preferred_slug)
+        if not preferred or preferred_slug == slug:
+            raise ValueError("Voorrangleverancier ontbreekt of verwijst naar zichzelf.")
+        preferred_products = _shopify_products(
+            client, preferred["name"], preferred_slug
+        )
+        blocked_skus, status_rows, preferred_vendor_duplicates = _priority_matches(
+            slug, all_source, existing, preferred_products, preferred["name"],
+            priority.get("status", "DRAFT"),
+        )
+        _run_rows(
+            client, status_rows,
+            """mutation call($input:ProductSetInput!){
+              productSet(synchronous:true,input:$input){
+                product{id status} userErrors{field message code}
+              }}""",
+            f"{slug}-priority.jsonl", f"{slug}-priority-{uuid.uuid4().hex}",
+            progress_callback, 2, 3, "Voorrangregels toepassen",
+        )
+        source = [p for p in source if str(p.get("sku") or "").upper() not in blocked_skus]
+        missing_source = [p for p in missing_source if str(p.get("sku") or "").upper() not in blocked_skus]
+    priced = [product for product in source if _has_valid_price(product)]
+    unpriced = [product for product in source if not _has_valid_price(product)]
     if (supplier.get("request_options") or {}).get("shopify_prices_only"):
         result = _sync_prices_only(
             client, slug, source, existing, progress_callback
@@ -2681,6 +2807,8 @@ def sync_all_products(
         return result
     _delete_certilas_stale_bundle_metafields(client, source, existing)
     _validate_existing_family_layout(source, existing)
+    if use_shopify_stock:
+        _apply_shopify_stock_availability(client, source, existing, location_id)
     inventory_ids_with_other_stock: set[str] = set()
     if keep_active_with_other_stock:
         relevant_inventory_ids = [
@@ -3088,19 +3216,19 @@ def sync_all_products(
                     "inventoryItem"
                 ]["id"],
             }
-    missing_stocked_at_weldingshop = _inventory_items_with_stock_at_location(
+    missing_stock_protected = _stock_protected_missing_items(
         client,
         [
             product["shopify_inventory_item_id"]
             for product in missing_matches.values()
         ],
-        location_id,
+        protect_all_locations=keep_active_with_other_stock,
     )
     missing_matches = {
         product_id: product
         for product_id, product in missing_matches.items()
         if product["shopify_inventory_item_id"]
-        not in missing_stocked_at_weldingshop
+        not in missing_stock_protected
     }
     draft_missing_enabled = bool(supplier.get("missing_products_to_draft", 1))
     delete_missing_enabled = (
@@ -3177,13 +3305,14 @@ def sync_all_products(
         "Verlopen conceptproducten verwijderen",
     )
 
+    inventory_source_products = [] if use_shopify_stock else sync_source
     _progress(progress_callback, 60, "Voorraadlocatie activeren…")
     activation_rows = [
         {
             "inventoryItemId": refreshed[product["sku"].upper()]["variant"]["inventoryItem"]["id"],
             "inventoryItemUpdates": [{"locationId": location_id, "activate": True}],
         }
-        for product in sync_source
+        for product in inventory_source_products
     ]
     _run_rows(
         client,
@@ -3208,8 +3337,8 @@ def sync_all_products(
     )
 
     inventory_errors = []
-    for index in range(0, len(sync_source), 100):
-        chunk = sync_source[index:index + 100]
+    for index in range(0, len(inventory_source_products), 100):
+        chunk = inventory_source_products[index:index + 100]
         quantities = [
             {
                 "inventoryItemId": refreshed[product["sku"].upper()]["variant"]["inventoryItem"]["id"],

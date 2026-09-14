@@ -18,6 +18,20 @@ from .service import ProductMakerService, normalized_host
 USER_AGENT = "Weldingshop-PIM-ProductMaker/1.0 (+verified product research)"
 
 
+def _fetch_product_page(url: str) -> requests.Response:
+    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
+    if getattr(response, "status_code", None) == 403:
+        raise ValueError(
+            f"De website {normalized_host(url)} weigert toegang vanaf de PIM-server "
+            "(HTTP 403). Daardoor kunnen de productgegevens niet worden gecontroleerd. "
+            "Gebruik een andere officiële productpagina waarop dezelfde volledige "
+            "SKU of EAN staat, of vraag de leverancier om toegang voor de PIM-server. "
+            "De pagina kan in je eigen browser wel werken."
+        )
+    response.raise_for_status()
+    return response
+
+
 def _identifier_key(value: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
 
@@ -127,8 +141,7 @@ def probe_product_page(
     url = _official_url(source_url, [domain] if domain else [])
     if not url:
         raise ValueError("Gebruik een geldige openbare HTTPS-productpagina")
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
-    response.raise_for_status()
+    response = _fetch_product_page(url)
     if "text/html" not in response.headers.get("Content-Type", "text/html"):
         raise ValueError("De bron is geen HTML-productpagina")
     soup = BeautifulSoup(response.text, "html.parser")
@@ -200,8 +213,7 @@ def inspect_official_page(
     url = _official_url(source_url, domains)
     if not url:
         raise ValueError("De URL staat niet op een goedgekeurd HTTPS-domein")
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
-    response.raise_for_status()
+    response = _fetch_product_page(url)
     if "text/html" not in response.headers.get("Content-Type", "text/html"):
         raise ValueError("De bron is geen HTML-productpagina")
     soup = BeautifulSoup(response.text, "html.parser")

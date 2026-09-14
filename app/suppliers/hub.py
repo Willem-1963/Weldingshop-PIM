@@ -1463,6 +1463,7 @@ def save_inventory_mapping(
     delivery_time_notice_text: str | None = None,
     draft_only_when_no_location_stock: bool | None = None,
     keep_active_when_out_of_stock: bool | None = None,
+    inventory_source: str | None = None,
     apply_existing: bool = True,
 ) -> dict[str, int]:
     quantity = int(available_stock_quantity)
@@ -1472,6 +1473,10 @@ def save_inventory_mapping(
     if not supplier:
         raise ValueError(f"Onbekende leverancier: {slug}")
     request_options = dict(supplier.get("request_options") or {})
+    if inventory_source is not None:
+        if inventory_source not in {"sync", "shopify"}:
+            raise ValueError("Kies Shopify of synchronisatie als voorraadbron.")
+        request_options["inventory_source"] = inventory_source
     if continue_selling_when_out_of_stock is not None:
         request_options["continue_selling_when_out_of_stock"] = bool(
             continue_selling_when_out_of_stock
@@ -1541,7 +1546,7 @@ def save_inventory_mapping(
             ),
         )
     supplier["request_options"] = request_options
-    if not apply_existing:
+    if not apply_existing or request_options.get("inventory_source") == "shopify":
         return {"updated": 0, "available_quantity": quantity}
     field_map = {**DEFAULT_MAPPING, **(supplier.get("field_mapping") or {})}
     stock_field = field_map["stock"]
@@ -1605,18 +1610,58 @@ def save_inventory_mapping(
     return {"updated": updated, "available_quantity": quantity}
 
 
+def supplier_priority_rule(supplier: dict[str, Any]) -> dict[str, str]:
+    configured = (supplier.get("request_options") or {}).get("supplier_priority")
+    if configured is not None:
+        return configured
+    # Preserve the existing Valkenpower/Rhodius rule until explicitly changed.
+    return {"supplier_slug": "rhodius-abrasives-gmbh" if supplier.get("slug") == "valkenpower" else "",
+            "status": "DRAFT"}
+
+
+def save_supplier_priority(slug: str, preferred_slug: str, status: str) -> None:
+    if status not in {"DRAFT", "ARCHIVED"}:
+        raise ValueError("Kies Concept of Archief.")
+    if preferred_slug == slug or (preferred_slug and not get_supplier(preferred_slug)):
+        raise ValueError("Kies een andere bestaande leverancier.")
+    init_registry()
+    with _connect(REGISTRY_PATH) as conn:
+        row = conn.execute("SELECT request_options_json FROM suppliers WHERE slug=?", (slug,)).fetchone()
+        if row is None:
+            raise ValueError("Leverancier niet gevonden.")
+        options = json.loads(row[0] or "{}")
+        options["supplier_priority"] = {"supplier_slug": preferred_slug, "status": status}
+        conn.execute("UPDATE suppliers SET request_options_json=?,updated_at=? WHERE slug=?",
+                     (json.dumps(options), utc_now(), slug))
+
+
 def save_missing_product_policy(
     slug: str,
     *,
     draft_missing: bool,
     delete_missing: bool,
     delete_after_months: int,
+    draft_only_when_no_location_stock: bool | None = None,
 ) -> None:
     months = int(delete_after_months)
     if months < 1 or months > 120:
         raise ValueError("De bewaartermijn moet tussen 1 en 120 maanden liggen.")
     init_registry()
     with _connect(REGISTRY_PATH) as conn:
+        if draft_only_when_no_location_stock is not None:
+            row = conn.execute(
+                "SELECT request_options_json FROM suppliers WHERE slug=?", (slug,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Onbekende leverancier: {slug}")
+            options = json.loads(row["request_options_json"] or "{}")
+            options["draft_only_when_no_location_stock"] = bool(
+                draft_only_when_no_location_stock
+            )
+            conn.execute(
+                "UPDATE suppliers SET request_options_json=? WHERE slug=?",
+                (json.dumps(options), slug),
+            )
         cursor = conn.execute(
             """
             UPDATE suppliers SET

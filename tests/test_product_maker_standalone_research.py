@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from app.product_maker_standalone.research import inspect_official_page, probe_product_page
 from app.product_maker_standalone.service import ProductMakerService
 
@@ -21,6 +23,30 @@ class Response:
     text = HTML
     def raise_for_status(self):
         return None
+
+
+def test_blocked_page_explains_next_step_without_recording_evidence(tmp_path, monkeypatch):
+    class BlockedResponse(Response):
+        status_code = 403
+        text = "<html>Cloudflare: access denied</html>"
+
+    monkeypatch.setattr(
+        "app.product_maker_standalone.research.requests.get",
+        lambda *args, **kwargs: BlockedResponse(),
+    )
+    url = "https://official.example/product"
+    with pytest.raises(ValueError, match="HTTP 403") as error:
+        probe_product_page(url, "ABC-123")
+    assert "andere officiële productpagina" in str(error.value)
+    service = ProductMakerService(tmp_path / "maker.sqlite3")
+    supplier = service.save_supplier("Test", "official.example")
+    draft_id = service.save_draft(
+        supplier_id=supplier, sku="ABC-123", vendor="Test",
+        purchase_price="1", sale_price="2", unit_factor="1",
+    )
+    with pytest.raises(ValueError, match="HTTP 403"):
+        inspect_official_page(service, draft_id, url)
+    assert service.list_evidence(draft_id) == []
 
 
 def test_official_page_requires_identifier_and_extracts_evidence(tmp_path, monkeypatch):

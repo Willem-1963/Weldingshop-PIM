@@ -24,7 +24,10 @@ try {
         $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
         $acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $target -AclObject $acl
+    # Persist only the modified access rules (DACL). PowerShell Set-Acl can
+    # also attempt to write audit permissions, requiring SeSecurityPrivilege.
+    # Directory.SetAccessControl preserves the existing owner and audit rules.
+    [System.IO.Directory]::SetAccessControl($target, $acl)
     foreach ($name in @('agent.ps1')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $target -Force
     }
