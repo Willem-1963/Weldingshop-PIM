@@ -2,6 +2,8 @@
 
 Deze index is de centrale ingang voor alle documentatie van Weldingshop PIM.
 
+Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leverancierneutrale melding; zie ook de Ultimatron-documentatie.
+
 - [Handmatige inkoopprijzen](MANUAL_PURCHASE_PRICES.md): netto inkoopprijs per artikel in tab 5.
 
 - [Ultimatron-catalogusverrijking](ULTIMATRON_ENRICHMENT.md): officiële lithiumcategorie, Nederlandse vertaling en starten via tab 8.

@@ -3056,9 +3056,7 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
                 st.caption(image["image_url"])
         else:
             st.info(
-                "Voor deze exacte leveranciers-SKU is geen afbeelding "
-                "gekoppeld. Dit is geen laadfout; andere Rhodius-artikelen "
-                "kunnen wel een eigen afbeelding hebben."
+                "Voor dit artikel is nog geen afbeelding in PIM opgeslagen."
             )
     with tabs[3]:
         if not invoice_history:

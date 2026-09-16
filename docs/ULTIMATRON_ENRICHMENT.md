@@ -36,4 +36,6 @@ Live proef met ULM-12-200 uitgevoerd. Controleer Nederlandse titel/omschrijving,
 
 ## Changelog
 
+- 2026-09-16: onjuiste verwijzing naar Rhodius in het algemene afbeeldingenpaneel verwijderd. Een lege afbeeldingenlijst geeft een neutrale melding.
+
 - 2026-09-16: officiële categorie-import, Nederlandse vertaling, validatie en startknop toegevoegd.

@@ -2,6 +2,8 @@
 
 ## 2026-09-16
 
+- Melding bij ontbrekende productafbeeldingen leverancierneutraal gemaakt; de vaste verwijzing naar Rhodius verwijderd.
+
 - Ultimatron-inkoopprijzen hersteld uit `Dealer Price(Excl.VAT)`: prijsparser accepteert het euroteken en Europese/Engelse decimaalnotatie. Tab 5 toont de gekoppelde bronkolom en houdt handmatige invoer optioneel. 17 bronprijzen hersteld; ULM-12-200 heeft geen dealerprijs in de opgeslagen bron.
 
 - Tab 5: directe netto inkoopprijsinvoer per artikel bovenaan, met bedrag excl. btw en verkoopeenheid. Handmatige prijzen blijven behouden bij import en kortingsberekening; de gebruiker kan ze weer vrijgeven.

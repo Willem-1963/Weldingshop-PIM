@@ -2,6 +2,8 @@
 
 Laatst bijgewerkt: 2026-09-16
 
+De melding voor ontbrekende productafbeeldingen noemt geen onjuiste leverancier meer. Zij meldt uitsluitend dat voor het geselecteerde artikel nog geen afbeelding in PIM is opgeslagen.
+
 ## Inkoopprijzen
 
 Ultimatron gebruikt `Dealer Price(Excl.VAT)` als netto inkoopprijs. De verwerking van bedragen zoals `222.25€` is hersteld en 17 bestaande prijzen zijn bijgewerkt. ULM-12-200 mist deze bronwaarde. Tab 5 toont de bronkoppeling; handmatige invoer is alleen een optionele afwijking.
