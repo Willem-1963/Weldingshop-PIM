@@ -1025,7 +1025,7 @@ def _build_product_directly(service: ProductMakerService, draft_id: int) -> None
             key: proposal[key] for key in (
                 "title", "short_description", "description_html", "seo_title",
                 "seo_description", "product_type", "tags",
-            ) if proposal.get(key)
+            ) if proposal.get(key) and not draft.get(key)
         }
         if overrides:
             service.save_draft(draft_id, **_draft_values(draft, overrides))

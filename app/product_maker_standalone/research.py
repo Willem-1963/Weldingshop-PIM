@@ -322,8 +322,9 @@ SKU: {draft['sku']} Merk: {draft['vendor']}
 BEWIJS: {json.dumps(facts, ensure_ascii=False)}
 Geef uitsluitend JSON met title, short_description, description_html, seo_title,
 seo_description, product_type, tags (array), properties (object), warnings (array).
-description_html gebruikt alleen p, h3, ul, li en strong. Zet bewezen technische
-eigenschappen onder een eigen kop. Noem bronnen niet in commerciële tekst."""
+description_html gebruikt alleen p, h3, ul, li en strong. Gebruik voor de lijst
+met bewezen eigenschappen uitsluitend de kop Kenmerken. Noem bronnen niet in
+commerciële tekst."""
     provider = OpenAIProvider()
     response = provider.client.with_options(timeout=90.0, max_retries=0).responses.create(
         model=os.getenv("OPENAI_TRANSLATION_MODEL", "gpt-5.6-terra"), input=prompt,
@@ -332,6 +333,13 @@ eigenschappen onder een eigen kop. Noem bronnen niet in commerciële tekst."""
     if output.startswith("```"):
         output = output.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     data = json.loads(output)
+    if data.get("description_html"):
+        data["description_html"] = re.sub(
+            r"<h3>\s*(?:Bewezen\s+)?technische\s+eigenschappen\s*</h3>",
+            "<h3>Kenmerken</h3>",
+            str(data["description_html"]),
+            flags=re.I,
+        )
     allowed = {"title", "short_description", "description_html", "seo_title",
                "seo_description", "product_type", "tags", "properties", "warnings"}
     data = {key: value for key, value in data.items() if key in allowed}

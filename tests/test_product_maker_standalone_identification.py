@@ -146,6 +146,49 @@ def test_website_build_does_not_hydrate_from_supplier_pim(monkeypatch):
     assert calls == [("website", "https://www.kentie.shop/nl/product")]
 
 
+def test_direct_build_preserves_entered_dimensions_during_ai_enrichment(monkeypatch):
+    draft = {
+        "id": 12, "sku": "HLT/001482", "supplier_sync_slug": "",
+        "supplier_id": None, "approved_domains": [],
+        "source_url": "https://supplier.example/product", "evidence": [
+            {"field_name": "source_url", "state": "proven"},
+        ],
+        "title": "SWP buitenruit 114 x 133 mm (10 stuks)",
+        "description_html": "<p>114 x 133 mm, 10 stuks.</p>",
+        "seo_title": "SWP buitenruit 114 x 133 mm",
+        "short_description": "10 stuks", "seo_description": "114 x 133 mm",
+        "product_type": "Buitenruit", "tags": ["114 x 133 mm"],
+        "category_id": "", "price_from_purchase_invoice": 0,
+    }
+
+    class Service:
+        def get_draft(self, draft_id):
+            return draft
+
+        def automation_settings(self, draft_id):
+            return {
+                "source_research": False, "evidence_enrichment": True,
+                "category_suggestion": False, "asset_collection": False,
+            }
+
+        def save_draft(self, draft_id, **values):
+            draft.update(values)
+            return draft_id
+
+    monkeypatch.setattr(page, "enrich_from_evidence", lambda *args: {
+        "title": "SWP lens 108 x 108 mm (5 stuks)",
+        "description_html": "<p>108 x 108 mm, 5 stuks.</p>",
+        "seo_title": "SWP lens 108 x 108 mm",
+        "seo_description": "108 x 108 mm",
+    })
+
+    page._build_product_directly(Service(), 12)
+
+    assert draft["title"] == "SWP buitenruit 114 x 133 mm (10 stuks)"
+    assert draft["description_html"] == "<p>114 x 133 mm, 10 stuks.</p>"
+    assert draft["seo_title"] == "SWP buitenruit 114 x 133 mm"
+
+
 def test_manual_source_build_creates_verified_incidental_supplier(monkeypatch, tmp_path):
     from app.product_maker_standalone.service import ProductMakerService
 
