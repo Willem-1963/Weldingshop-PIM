@@ -35,6 +35,28 @@ SALES_RULE_TYPES = {
 ABSOLUTE_SALES_RULE_TYPES = {"fixed_markup", "fixed_price"}
 
 
+def apply_mapped_purchase_costs(slug: str) -> dict[str, int]:
+    """Refresh only net cost from the saved supplier source field."""
+    from app.suppliers.hub import source_price_value
+    field = ((get_supplier(slug) or {}).get("field_mapping") or {}).get("cost_price")
+    if not field:
+        raise ValueError("Koppel eerst het netto inkoopprijsveld in tab 3.")
+    result = {"updated": 0, "missing": 0, "manual": 0}
+    with _connect(init_supplier_database(slug)) as conn:
+        for row in conn.execute("SELECT sku,raw_data_json FROM products WHERE source_present=1").fetchall():
+            raw = json.loads(row["raw_data_json"] or "{}")
+            if raw.get("manual_purchase_price") or "cost_price" in (raw.get("product_maker_overrides") or {}):
+                result["manual"] += 1
+                continue
+            cost = source_price_value(raw.get(field))
+            if cost is None or cost < 0:
+                result["missing"] += 1
+                continue
+            conn.execute("UPDATE products SET cost_price=?,updated_at=? WHERE sku=?", (cost, utc_now(), row["sku"]))
+            result["updated"] += 1
+    return result
+
+
 def save_manual_purchase_cost(slug: str, sku: str, amount: Any) -> float:
     """Set a net cost per sales unit, without locking product content."""
     try:

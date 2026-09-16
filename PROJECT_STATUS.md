@@ -4,6 +4,8 @@ Laatst bijgewerkt: 2026-09-16
 
 ## Inkoopprijzen
 
+Ultimatron gebruikt `Dealer Price(Excl.VAT)` als netto inkoopprijs. De verwerking van bedragen zoals `222.25€` is hersteld en 17 bestaande prijzen zijn bijgewerkt. ULM-12-200 mist deze bronwaarde. Tab 5 toont de bronkoppeling; handmatige invoer is alleen een optionele afwijking.
+
 Tab 5 heeft directe netto inkoopprijsinvoer per artikel, met prijsbescherming bij bronimport en kortingsregels. Elf relevante tests slagen, inclusief de Streamlit-schermtest. Er zijn geen leveranciersprijzen ingevuld tijdens deze aanpassing.
 
 ## Ultimatron

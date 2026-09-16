@@ -18,6 +18,8 @@ Geïmplementeerd en getest op 16 september 2026. Geen bedragen in de actieve lev
 
 ## Flow
 
+Wanneer een netto inkoopprijsveld gekoppeld is, toont tab 5 eerst de bronkolom en de huidige prijs per artikel. Bij Ultimatron is dit `Dealer Price(Excl.VAT)`. De knop Inkoopprijzen uit bron bijwerken verwerkt alleen de opgeslagen bronprijzen; teksten, afbeeldingen, verkoopprijzen en voorraad blijven behouden. Handmatige invoer is dan verborgen achter Inkoopprijs handmatig aanpassen.
+
 Leverancier → Bron & import → 5. Inkoopprijzen → artikel kiezen → netto inkoopprijs excl. btw per verkoopeenheid invullen → Inkoopprijs opslaan. Een ontbrekende prijs blijft leeg totdat de gebruiker een bedrag invoert; nul is een geldig expliciet bedrag. Bestaande verkoopprijs, voorraad en tekstvergrendeling veranderen niet.
 
 De leveranciersservice bewaart de prijs in `cost_price` met herkomst in `raw_data_json.manual_purchase_price`. De bronimport neemt deze waarde over en kortingsberekeningen slaan het artikel over. Handmatige prijs vrijgeven verwijdert de bescherming; het huidige bedrag blijft staan totdat een volgende bronimport of kortingsberekening een nieuwe waarde oplevert.
@@ -30,7 +32,7 @@ Elf tests slagen. De Streamlit-test controleert leeg bedrag, opslaan, melding en
 
 ## Openstaande punten
 
-Geen automatische prijsafleiding uit de Ultimatron-website. De gebruiker voert de overeengekomen leveranciersprijs in. Verkoopprijsberekening blijft onder tab 6.
+Ultimatron-inkoopprijzen komen uit de dealerprijslijst, niet uit de openbare website. ULM-12-200 is via de website toegevoegd en mist een dealerprijs in de opgeslagen bron. Verkoopprijsberekening blijft onder tab 6.
 
 ## Changelog
 

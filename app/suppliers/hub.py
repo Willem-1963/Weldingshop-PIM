@@ -2177,7 +2177,7 @@ SOURCE_FIELD_ALIASES = {
     },
     "cost_price": {
         "costprice", "purchaseprice", "netpurchaseprice",
-        "inkoopprijs", "specialpriceexvat", "nettoprijs",
+        "inkoopprijs", "specialpriceexvat", "nettoprijs", "dealerpriceexclvat",
     },
     "weight": {
         "weight", "weightkg", "weightgrams", "gewicht", "gewichtkg",
@@ -2357,6 +2357,19 @@ def _float(value: Any) -> float | None:
         return number if math.isfinite(number) else None
     except (TypeError, ValueError):
         return None
+
+
+def source_price_value(value: Any) -> float | None:
+    """Read numeric EUR prices, including the currency suffix in dealer sheets."""
+    text = str(value).strip()
+    text = re.sub(r"^(?:€|EUR)\s*|\s*(?:€|EUR)$", "", text, flags=re.IGNORECASE).strip()
+    text = text.replace("\u00a0", "").replace("\u202f", "")
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "")
+        else:
+            text = text.replace(",", "")
+    return _float(text)
 
 
 def _package_weight(value: Any) -> float | None:
@@ -2936,10 +2949,10 @@ def import_records(
             seen.add(sku)
             stats["seen"] += 1
             title = _text(record.get(field_map["title"]))
-            source_price = _float(record.get(field_map["price"]))
-            source_sale_price = _float(record.get(field_map["sale_price"]))
+            source_price = source_price_value(record.get(field_map["price"]))
+            source_sale_price = source_price_value(record.get(field_map["sale_price"]))
             source_cost_price = (
-                _float(record.get(field_map["cost_price"]))
+                source_price_value(record.get(field_map["cost_price"]))
                 if field_map.get("cost_price") else None
             )
             gross_purchase_price_per_kg = (

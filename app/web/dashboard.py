@@ -5713,7 +5713,7 @@ with source_analysis_subtab:
 
 with source_purchase_pricing_subtab:
     from app.web.purchase_prices import render_manual_purchase_price
-    render_manual_purchase_price(selected_slug)
+    render_manual_purchase_price(selected_slug, (supplier.get("field_mapping") or {}).get("cost_price", ""))
     pricing_analysis = st.session_state.get(f"analysis_{selected_slug}")
     current_unit_mapping = supplier.get("field_mapping") or {}
     saved_source_fields = list(dict.fromkeys(

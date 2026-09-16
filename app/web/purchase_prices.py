@@ -2,14 +2,22 @@
 import streamlit as st
 
 from app.suppliers.discounts import (
-    discount_product_options, release_manual_purchase_cost, save_manual_purchase_cost,
+    apply_mapped_purchase_costs, discount_product_options, release_manual_purchase_cost, save_manual_purchase_cost,
 )
 from app.suppliers.hub import get_supplier_product
 
 
-def render_manual_purchase_price(slug: str) -> None:
+def render_manual_purchase_price(slug: str, source_field: str = '') -> None:
     st.markdown('#### Inkoopprijs per artikel')
-    st.caption('Vul de netto inkoopprijs exclusief btw in: het bedrag dat je na leverancierskorting betaalt, per verkoopeenheid.')
+    if source_field:
+        st.info(f'De netto inkoopprijs exclusief btw wordt overgenomen uit de bronkolom: {source_field}.')
+        if st.button('Inkoopprijzen uit bron bijwerken', key=f'apply_source_cost_{slug}'):
+            result = apply_mapped_purchase_costs(slug)
+            st.success(f"{result['updated']} inkoopprijzen bijgewerkt; {result['missing']} zonder geldige bronprijs; {result['manual']} handmatig vastgelegd.")
+            st.session_state.pop(f'discount_preview_{slug}', None)
+            st.session_state.pop(f'sales_price_preview_{slug}', None)
+    else:
+        st.caption('Vul de netto inkoopprijs exclusief btw in: het bedrag dat je na leverancierskorting betaalt, per verkoopeenheid.')
     flash_key = f'purchase_price_saved_{slug}'
     if flash_key in st.session_state:
         st.success(st.session_state.pop(flash_key))
@@ -31,6 +39,12 @@ def render_manual_purchase_price(slug: str) -> None:
     manual = (product.get('raw_data') or {}).get('manual_purchase_price')
     st.metric(f'Huidige netto inkoopprijs per {unit}',
               'Nog niet ingesteld' if current is None else f'€ {float(current):.2f}'.replace('.', ','))
+    if source_field:
+        source_value = (product.get('raw_data') or {}).get(source_field)
+        st.caption(f'Bronwaarde {source_field}: {source_value if source_value is not None else "ontbreekt"}')
+        if not st.toggle('Inkoopprijs handmatig aanpassen', value=bool(manual), key=f'manual_cost_toggle_{slug}_{sku}'):
+            st.divider()
+            return
     if manual:
         st.caption('Handmatig vastgelegd. Deze prijs blijft behouden bij bronimport, verrijking en het toepassen van kortingsregels.')
     elif current is None:
