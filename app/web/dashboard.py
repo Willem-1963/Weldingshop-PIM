@@ -4378,15 +4378,24 @@ with source_inventory_subtab:
 with source_enrichment_rules_subtab:
     if selected_slug == "ultimatron":
         from app.suppliers.ultimatron import job_status, start_job
-        st.markdown("#### Ultimatron-lithiumaccu’s ophalen")
-        st.caption("Haalt artikelen uit de categorie lithiumaccu’s op, volgt de productpagina’s en slaat Nederlandse teksten, specificaties en productfoto’s op in PIM.")
+        st.markdown("#### Ultimatron-spreadsheetartikelen verrijken")
+        st.caption("Verrijkt uitsluitend de geïmporteerde spreadsheetartikelen met Nederlandse teksten, specificaties en foto’s van exact overeenkomende officiële productpagina’s. Voegt geen websiteartikelen toe.")
         ultimatron_status = job_status()
         if ultimatron_status:
-            st.write(f"Status: {ultimatron_status['status']} · {ultimatron_status['completed']}/{ultimatron_status['total']} verwerkt · {ultimatron_status['failed']} mislukt")
+            status_label = {
+                'running': 'Bezig', 'completed': 'Afgerond',
+                'completed_with_errors': 'Afgerond met aandachtspunten',
+                'failed': 'Mislukt', 'stopped': 'Gestopt',
+            }.get(ultimatron_status['status'], ultimatron_status['status'])
+            not_found = ultimatron_status.get('not_found', 0)
+            processed = ultimatron_status['completed'] + ultimatron_status['failed'] + not_found
+            st.write(f"Status: {status_label} · {processed}/{ultimatron_status['total']} gecontroleerd · {ultimatron_status['completed']} verrijkt · {not_found} niet exact gevonden · {ultimatron_status['failed']} mislukt")
+            if ultimatron_status.get("current_sku") and ultimatron_status['status'] == 'running':
+                st.caption(f"Bezig met {ultimatron_status['current_sku']}")
             if ultimatron_status.get("errors"):
                 with st.expander("Artikelen die aandacht nodig hebben"):
                     st.json(ultimatron_status["errors"])
-        if st.button("Ultimatron-catalogus ophalen en verrijken", key="ultimatron_start_catalogue"):
+        if st.button("Ultimatron-spreadsheetartikelen verrijken", key="ultimatron_start_catalogue"):
             start_job()
             st.success("Verrijking gestart op de achtergrond. Klik op Voortgang vernieuwen om de stand te bekijken.")
         if st.button("Voortgang vernieuwen", key="ultimatron_refresh_catalogue"):

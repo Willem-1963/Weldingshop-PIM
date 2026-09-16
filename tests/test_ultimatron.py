@@ -73,8 +73,8 @@ def test_translation_restores_protected_numbers_without_changing_notation():
     def create(**kwargs):
         payload = json.loads(kwargs['input'].split('\n', 1)[1])
         payload['title'] = payload['title'].replace('Batterie', 'Accu')
-        payload['description'] = payload['description'].replace('Une batterie de', 'Een accu van').replace('avec', 'met').replace('ans de garantie', 'jaar garantie')
-        payload['technical_specifications'] = {'Spanning': payload['technical_specifications']['Tension']}
+        payload['p0'] = payload['p0'].replace('Une batterie de', 'Een accu van').replace('avec', 'met').replace('ans de garantie', 'jaar garantie')
+        payload['k0'] = 'Spanning'
         return SimpleNamespace(output_text=json.dumps(payload))
     client = SimpleNamespace(responses=SimpleNamespace(create=create))
     client.with_options = lambda **kwargs: client
@@ -87,6 +87,7 @@ def test_translation_restores_protected_numbers_without_changing_notation():
 def test_catalogue_reports_failures_and_continues(monkeypatch, tmp_path):
     monkeypatch.setattr(u, 'STATE_DIR', tmp_path)
     monkeypatch.setattr(u, 'discover', lambda: {'A': URL, 'B': URL})
+    monkeypatch.setattr(u, 'spreadsheet_products', lambda: ['A', 'B'])
     def import_product(sku, **kwargs):
         if sku == 'A':
             raise ValueError('Vertaling afgekeurd')
@@ -97,3 +98,75 @@ def test_catalogue_reports_failures_and_continues(monkeypatch, tmp_path):
     assert (status['completed'], status['failed'], status['total']) == (1, 1, 2)
     assert status['status'] == 'completed_with_errors'
     assert status['errors'][0]['sku'] == 'A'
+
+
+def test_spreadsheet_scope_excludes_website_only_products(monkeypatch, tmp_path):
+    from app.suppliers import hub
+    monkeypatch.setattr(hub, 'SUPPLIER_DIR', tmp_path)
+    monkeypatch.setattr(u, 'get_supplier', lambda slug: {'field_mapping': {'sku': 'Article Number'}})
+    path = hub.init_supplier_database('ultimatron')
+    with hub._connect(path) as conn:
+        for sku, raw in [('IN-SHEET', {'Article Number':'IN-SHEET'}), ('ULM-12-200', {'website_import':{}})]:
+            conn.execute('INSERT INTO products(sku,raw_data_json,first_seen_at,last_seen_at,updated_at) VALUES(?,?,?,?,?)', (sku,json.dumps(raw),'now','now','now'))
+    assert u.spreadsheet_products() == ['IN-SHEET']
+
+
+def test_bulk_does_not_recreate_deleted_product(monkeypatch, tmp_path):
+    from app.suppliers import hub
+    from app.suppliers.enrichment_profiles import default_enrichment_profile
+    monkeypatch.setattr(hub, 'SUPPLIER_DIR', tmp_path)
+    profile = default_enrichment_profile('ultimatron')
+    profile['translation']['enabled'] = True
+    monkeypatch.setattr(u, 'get_enrichment_profile', lambda slug: profile)
+    with pytest.raises(ValueError, match='niet opnieuw aangemaakt'):
+        u.import_product('ULM-12-200', existing_only=True, product_url=URL)
+
+
+def test_exact_search_does_not_replace_heated_variant(monkeypatch):
+    page = '<li class="product"><a data-product_sku="ABC"></a><h2 class="woocommerce-loop-product__title"><a href="'+URL+'">ABC</a></h2></li>'
+    monkeypatch.setattr(u,'fetch',lambda url:page)
+    assert u.resolve_product_url('ABC-H', {}) == ''
+    assert u.resolve_product_url('ABC', {}) == URL
+
+
+def test_catalogue_never_imports_extra_website_articles(monkeypatch, tmp_path):
+    monkeypatch.setattr(u,'STATE_DIR',tmp_path)
+    monkeypatch.setattr(u,'spreadsheet_products',lambda:['SHEET','MISSING'])
+    monkeypatch.setattr(u,'discover',lambda:{'SHEET':URL,'ULM-12-200':URL})
+    monkeypatch.setattr(u,'resolve_product_url',lambda sku,catalogue:catalogue.get(sku,''))
+    calls=[]
+    monkeypatch.setattr(u,'import_product',lambda sku,**kwargs:calls.append((sku,kwargs['existing_only'])))
+    u.run_catalogue()
+    assert calls == [('SHEET',True)]
+    status=u.job_status()
+    assert (status['total'],status['completed'],status['not_found'],status['failed']) == (2,1,1,0)
+    assert status['errors'][0]['sku'] == 'MISSING'
+
+
+def test_translation_keeps_repeated_specification_labels_separate():
+    source={'title':'Batterie 12V','description':'Batterie de 12V.',
+            'technical_specifications':{'Tension':'12V','tension':'13V'}}
+    def create(**kwargs):
+        payload=json.loads(kwargs['input'].split('\n',1)[1])
+        payload['title']=payload['title'].replace('Batterie','Accu')
+        payload['p0']=payload['p0'].replace('Batterie de','Accu van')
+        payload['k0']=payload['k1']='Spanning'
+        return SimpleNamespace(output_text=json.dumps(payload))
+    client=SimpleNamespace(responses=SimpleNamespace(create=create))
+    client.with_options=lambda **kwargs:client
+    result=u.translate(source,SimpleNamespace(client=client,model='test'),{'translation':{}})
+    assert list(result['technical_specifications'].values()) == ['12V','13V']
+    assert len(result['technical_specifications']) == 2
+
+
+def test_translation_rejects_technical_values_moved_between_fields():
+    source={'title':'Batterie','description':'Batterie.',
+            'technical_specifications':{'Tension':'12V','Courant':'13A'}}
+    def create(**kwargs):
+        payload=json.JSONDecoder().raw_decode(kwargs['input'].split('\n',1)[1])[0]
+        payload['v0'],payload['v1']=payload['v1'],payload['v0']
+        return SimpleNamespace(output_text=json.dumps(payload))
+    client=SimpleNamespace(responses=SimpleNamespace(create=create))
+    client.with_options=lambda **kwargs:client
+    with pytest.raises(ValueError,match='Technische waarden gewijzigd'):
+        u.translate(source,SimpleNamespace(client=client,model='test'),{'translation':{}})

@@ -2,6 +2,10 @@
 
 ## 2026-09-16
 
+- Ultimatron-vertaling per tekstveld met vaste veld-ID’s en validatie van technische waarden per eigenschap. Herstelrun: 7 verrijkt, 10 niet exact gevonden, 0 verwerkingsfouten.
+
+- Ultimatron-verrijking beperkt tot de bestaande spreadsheetartikelen. De website is alleen verrijkingsbron; extra website-SKU’s worden niet meer toegevoegd. Vijf onbedoelde toevoegingen uit de oude run teruggedraaid. Exacte zoekfunctie toegevoegd voor ontbrekende categorielinks; voortgang onderscheidt niet gevonden artikelen van verwerkingsfouten.
+
 - Melding bij ontbrekende productafbeeldingen leverancierneutraal gemaakt; de vaste verwijzing naar Rhodius verwijderd.
 
 - Ultimatron-inkoopprijzen hersteld uit `Dealer Price(Excl.VAT)`: prijsparser accepteert het euroteken en Europese/Engelse decimaalnotatie. Tab 5 toont de gekoppelde bronkolom en houdt handmatige invoer optioneel. 17 bronprijzen hersteld; ULM-12-200 heeft geen dealerprijs in de opgeslagen bron.

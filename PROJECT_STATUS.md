@@ -12,7 +12,9 @@ Tab 5 heeft directe netto inkoopprijsinvoer per artikel, met prijsbescherming bi
 
 ## Ultimatron
 
-Officiële lithiumcategorie en Nederlandse verrijking ingesteld. Tab 8 bevat de startknop voor de 17 unieke artikelen. ULM-12-200 is als proef geïmporteerd met 9 foto's, 40 specificaties en EAN. Zie `docs/ULTIMATRON_ENRICHMENT.md`.
+Herstelrun afgerond: 7 verrijkt, 10 niet exact gevonden, 0 verwerkingsfouten. Vertaling per tekstveld voorkomt het samenvoegen van technische eigenschappen en bewaakt technische waarden op hun oorspronkelijke plek. 23 relevante tests slagen.
+
+Tab 8 verrijkt uitsluitend de 17 geïmporteerde spreadsheetartikelen. De Franse categorie en zoekfunctie leveren 7 exacte matches; 10 SKU’s worden niet door een vergelijkbare variant vervangen. De oude categorierun is gestopt en vijf onbedoelde toevoegingen zijn teruggedraaid, inclusief ULM-12-200. Zie `docs/ULTIMATRON_ENRICHMENT.md`.
 
 ## Projectstatus
 
