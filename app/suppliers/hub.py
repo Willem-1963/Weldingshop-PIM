@@ -3216,6 +3216,12 @@ def import_records(
                     ).encode()
                 ).hexdigest()
             website_enrichment = existing_raw.get("website_enrichment")
+            manual_purchase_price = existing_raw.get("manual_purchase_price")
+            if isinstance(manual_purchase_price, dict) and "cost_price" in manual_purchase_price:
+                normalized["cost_price"] = manual_purchase_price["cost_price"]
+                content_hash = hashlib.sha256(
+                    json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode()
+                ).hexdigest()
             preserved_raw = {
                 key: existing_raw.get(key)
                 for key in (
@@ -3223,6 +3229,7 @@ def import_records(
                     "valkenpower_category_evidence",
                     "collection_index",
                     "product_maker_overrides",
+                    "manual_purchase_price",
                 )
                 if isinstance(existing_raw.get(key), dict)
                 and existing_raw.get(key)

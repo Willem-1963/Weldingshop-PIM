@@ -2,6 +2,8 @@
 
 Deze index is de centrale ingang voor alle documentatie van Weldingshop PIM.
 
+- [Handmatige inkoopprijzen](MANUAL_PURCHASE_PRICES.md): netto inkoopprijs per artikel in tab 5.
+
 - [Ultimatron-catalogusverrijking](ULTIMATRON_ENRICHMENT.md): officiële lithiumcategorie, Nederlandse vertaling en starten via tab 8.
 
 ## Projectstatus

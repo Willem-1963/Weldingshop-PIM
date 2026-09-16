@@ -5712,6 +5712,8 @@ with source_analysis_subtab:
                 st.rerun()
 
 with source_purchase_pricing_subtab:
+    from app.web.purchase_prices import render_manual_purchase_price
+    render_manual_purchase_price(selected_slug)
     pricing_analysis = st.session_state.get(f"analysis_{selected_slug}")
     current_unit_mapping = supplier.get("field_mapping") or {}
     saved_source_fields = list(dict.fromkeys(
@@ -5733,7 +5735,7 @@ with source_purchase_pricing_subtab:
     else:
         pricing_automatic_mapping = {}
 
-    with st.expander("Inkoop- en verkoopeenheden", expanded=True):
+    with st.expander("Geavanceerd: inkoop- en verkoopeenheden uit een prijslijst", expanded=False):
             if pricing_analysis:
                 st.caption(
                     "De opgeslagen koppelingen zijn geladen en aangevuld met "
@@ -5806,8 +5808,9 @@ with source_purchase_pricing_subtab:
 
     st.markdown("#### Inkoopkortingen")
     st.caption(
-        "De regels berekenen uitsluitend de interne inkoopprijs. Verkoopprijzen "
-        "en Shopify-prijzen worden hierdoor niet aangepast."
+        "Gebruik dit wanneer je een bruto bronprijs en leverancierskorting hebt. "
+        "Zonder bronprijs vul je hierboven de netto inkoopprijs per artikel in. "
+        "Handmatig vastgelegde inkoopprijzen worden overgeslagen."
     )
     with st.form(f"discount_rule_{selected_slug}"):
         discount_name = st.text_input(

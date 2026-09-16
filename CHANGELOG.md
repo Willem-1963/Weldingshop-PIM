@@ -2,6 +2,8 @@
 
 ## 2026-09-16
 
+- Tab 5: directe netto inkoopprijsinvoer per artikel bovenaan, met bedrag excl. btw en verkoopeenheid. Handmatige prijzen blijven behouden bij import en kortingsberekening; de gebruiker kan ze weer vrijgeven.
+
 - Ultimatron: lithiumcategorie ontdekken, exacte productpagina’s uitlezen en volledige Nederlandse tekst, specificaties en galerijfoto’s opslaan.
 - Startknop en voortgang toegevoegd in tab 8; proefimport ULM-12-200 geslaagd met 9 foto’s en 40 specificaties.
 - Technische waarden beschermd tijdens vertaling; prijzen, voorraad en handmatig vergrendelde inhoud blijven behouden.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from app.suppliers.hub import (
@@ -32,6 +33,40 @@ SALES_RULE_TYPES = {
 }
 
 ABSOLUTE_SALES_RULE_TYPES = {"fixed_markup", "fixed_price"}
+
+
+def save_manual_purchase_cost(slug: str, sku: str, amount: Any) -> float:
+    """Set a net cost per sales unit, without locking product content."""
+    try:
+        value = Decimal(str(amount).strip().replace(",", "."))
+        if not value.is_finite() or value < 0:
+            raise ValueError("Vul een geldige inkoopprijs van 0 of hoger in.")
+        cost = float(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError):
+        raise ValueError("Vul een geldige inkoopprijs in, bijvoorbeeld 249,50.") from None
+    with _connect(init_supplier_database(slug)) as conn:
+        row = conn.execute("SELECT raw_data_json FROM products WHERE sku=?", (sku,)).fetchone()
+        if row is None:
+            raise ValueError("Dit artikel staat niet in de PIM van deze leverancier.")
+        raw = json.loads(row["raw_data_json"] or "{}")
+        raw["manual_purchase_price"] = {"cost_price": cost, "updated_at": utc_now()}
+        conn.execute(
+            "UPDATE products SET cost_price=?,raw_data_json=?,updated_at=? WHERE sku=?",
+            (cost, json.dumps(raw, ensure_ascii=False), utc_now(), sku),
+        )
+    return cost
+
+
+def release_manual_purchase_cost(slug: str, sku: str) -> None:
+    """Allow subsequent source imports/discount rules to calculate cost again."""
+    with _connect(init_supplier_database(slug)) as conn:
+        row = conn.execute("SELECT raw_data_json FROM products WHERE sku=?", (sku,)).fetchone()
+        if row is None:
+            raise ValueError("Onbekend artikel bij deze leverancier.")
+        raw = json.loads(row["raw_data_json"] or "{}")
+        raw.pop("manual_purchase_price", None)
+        conn.execute("UPDATE products SET raw_data_json=?,updated_at=? WHERE sku=?",
+                     (json.dumps(raw, ensure_ascii=False), utc_now(), sku))
 
 
 def init_discount_tables(slug: str) -> None:
@@ -316,7 +351,7 @@ def preview_purchase_costs(slug: str, limit: int | None = 500) -> list[dict[str,
     rules = list_discount_rules(slug, include_disabled=False)
     query = """
         SELECT sku,source_title,product_type,category,category_full,
-            price,sale_price,cost_price
+            price,sale_price,cost_price,raw_data_json
         FROM products WHERE source_present=1 ORDER BY sku
     """
     params: tuple[Any, ...] = ()
@@ -328,6 +363,7 @@ def preview_purchase_costs(slug: str, limit: int | None = 500) -> list[dict[str,
 
     result = []
     for product in products:
+        manual = (json.loads(product.get("raw_data_json") or "{}").get("manual_purchase_price") or {})
         rule = _effective_rule(rules, product)
         basis = None
         if rule:
@@ -352,9 +388,9 @@ def preview_purchase_costs(slug: str, limit: int | None = 500) -> list[dict[str,
                 "Productgroep": product.get("product_type") or "",
                 "Categorie": product.get("category") or "",
                 "Basisprijs": basis,
-                "Kortingsregel": rule["name"] if rule else "",
-                "Korting %": rule["discount_percent"] if rule else None,
-                "Berekende inkoopprijs": calculated,
+                "Kortingsregel": "Handmatig vastgelegd" if manual else rule["name"] if rule else "",
+                "Korting %": None if manual else rule["discount_percent"] if rule else None,
+                "Berekende inkoopprijs": manual.get("cost_price") if manual else calculated,
                 "Huidige inkoopprijs": product.get("cost_price"),
             }
         )
@@ -367,6 +403,12 @@ def apply_purchase_costs(slug: str) -> dict[str, int]:
     skipped = 0
     with _connect(init_supplier_database(slug)) as conn:
         for row in preview:
+            # Read inside this transaction: a manual price may have been saved
+            # after the preview was calculated.
+            current = conn.execute("SELECT raw_data_json FROM products WHERE sku=?", (row["SKU"],)).fetchone()
+            if current and json.loads(current["raw_data_json"] or "{}").get("manual_purchase_price"):
+                skipped += 1
+                continue
             cost = row["Berekende inkoopprijs"]
             if cost is None:
                 skipped += 1
@@ -381,7 +423,7 @@ def apply_purchase_costs(slug: str) -> dict[str, int]:
             INSERT INTO purchase_discount_runs(applied_at,products_updated,message)
             VALUES(?,?,?)
             """,
-            (utc_now(), updated, f"Overgeslagen zonder passende regel/basisprijs: {skipped}"),
+            (utc_now(), updated, f"Overgeslagen: handmatige prijs of geen passende regel/basisprijs: {skipped}"),
         )
     return {"updated": updated, "skipped": skipped}
 

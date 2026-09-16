@@ -2,6 +2,10 @@
 
 Laatst bijgewerkt: 2026-09-16
 
+## Inkoopprijzen
+
+Tab 5 heeft directe netto inkoopprijsinvoer per artikel, met prijsbescherming bij bronimport en kortingsregels. Elf relevante tests slagen, inclusief de Streamlit-schermtest. Er zijn geen leveranciersprijzen ingevuld tijdens deze aanpassing.
+
 ## Ultimatron
 
 Officiële lithiumcategorie en Nederlandse verrijking ingesteld. Tab 8 bevat de startknop voor de 17 unieke artikelen. ULM-12-200 is als proef geïmporteerd met 9 foto's, 40 specificaties en EAN. Zie `docs/ULTIMATRON_ENRICHMENT.md`.
