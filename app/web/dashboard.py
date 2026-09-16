@@ -4378,6 +4378,22 @@ with source_inventory_subtab:
         st.rerun()
 
 with source_enrichment_rules_subtab:
+    if selected_slug == "ultimatron":
+        from app.suppliers.ultimatron import job_status, start_job
+        st.markdown("#### Ultimatron-lithiumaccu’s ophalen")
+        st.caption("Haalt artikelen uit de categorie lithiumaccu’s op, volgt de productpagina’s en slaat Nederlandse teksten, specificaties en productfoto’s op in PIM.")
+        ultimatron_status = job_status()
+        if ultimatron_status:
+            st.write(f"Status: {ultimatron_status['status']} · {ultimatron_status['completed']}/{ultimatron_status['total']} verwerkt · {ultimatron_status['failed']} mislukt")
+            if ultimatron_status.get("errors"):
+                with st.expander("Artikelen die aandacht nodig hebben"):
+                    st.json(ultimatron_status["errors"])
+        if st.button("Ultimatron-catalogus ophalen en verrijken", key="ultimatron_start_catalogue"):
+            start_job()
+            st.success("Verrijking gestart op de achtergrond. Klik op Voortgang vernieuwen om de stand te bekijken.")
+        if st.button("Voortgang vernieuwen", key="ultimatron_refresh_catalogue"):
+            st.rerun()
+        st.divider()
     st.markdown("#### Verrijkingsprofiel")
     st.caption(
         "Deze actieve regels worden opnieuw ingelezen bij handmatige en "

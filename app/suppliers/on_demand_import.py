@@ -625,6 +625,12 @@ def import_official_website_product(
     article = str(supplier_article_number or "").strip()
     if not slug or not article or len(article) > 120 or not re.search(r"[A-Za-z0-9]", article):
         raise ValueError("Vul een geldig leveranciersartikelnummer in.")
+    if slug == "ultimatron":
+        from app.suppliers.ultimatron import import_product
+        return import_product(
+            article, provider=provider, execution_context=execution_context,
+            progress_callback=progress_callback,
+        )
     supplier = get_supplier(slug)
     if not supplier:
         raise ValueError("Onbekende leverancier.")

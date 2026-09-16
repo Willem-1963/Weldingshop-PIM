@@ -2,6 +2,8 @@
 
 Deze index is de centrale ingang voor alle documentatie van Weldingshop PIM.
 
+- [Ultimatron-catalogusverrijking](ULTIMATRON_ENRICHMENT.md): officiële lithiumcategorie, Nederlandse vertaling en starten via tab 8.
+
 ## Projectstatus
 
 - `README.md` - Centrale startpagina met status, architectuur en belangrijkste verwijzingen.
