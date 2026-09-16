@@ -275,6 +275,10 @@ def import_product(sku, *, provider=None, execution_context='selected_product', 
             updated_at=excluded.updated_at''', (sku,sku,source['ean'],source['title'],description,title,body,
             json.dumps(raw,ensure_ascii=False),digest,now,now,now))
         conn.execute('DELETE FROM product_images WHERE sku=?', (sku,))
+        from app.suppliers.ultimatron_classification import battery_classification
+        group, filters = battery_classification(raw)
+        conn.execute('UPDATE products SET product_group_name=?,filter_values_json=? WHERE sku=?',
+                     (group, json.dumps(filters, ensure_ascii=False), sku))
         conn.executemany('INSERT INTO product_images(sku,image_url,position,alt_text) VALUES(?,?,?,?)',
                          [(sku,image,index,title) for index,image in enumerate(images,1)])
     return {'sku': sku, 'created': not bool(existing), 'images': len(images), 'source_url': url,

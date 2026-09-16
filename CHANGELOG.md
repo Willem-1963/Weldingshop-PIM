@@ -2,6 +2,8 @@
 
 ## 2026-09-16
 
+- Ultimatron-indeling genormaliseerd naar Lithiumaccu’s; één nominale spanning uit de spreadsheet per artikel, zonder serie- en laadspanningen uit beschrijvingen. Geldt bij import, verrijking en filterverversing. Alle 17 artikelen hersteld.
+
 - Ultimatron-vertaling per tekstveld met vaste veld-ID’s en validatie van technische waarden per eigenschap. Herstelrun: 7 verrijkt, 10 niet exact gevonden, 0 verwerkingsfouten.
 
 - Ultimatron-verrijking beperkt tot de bestaande spreadsheetartikelen. De website is alleen verrijkingsbron; extra website-SKU’s worden niet meer toegevoegd. Vijf onbedoelde toevoegingen uit de oude run teruggedraaid. Exacte zoekfunctie toegevoegd voor ontbrekende categorielinks; voortgang onderscheidt niet gevonden artikelen van verwerkingsfouten.

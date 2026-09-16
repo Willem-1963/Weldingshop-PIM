@@ -19,6 +19,8 @@ De selectie is op 16 september 2026 gecorrigeerd: alleen de 17 artikelen met een
 
 ## Flow
 
+Productgroep: `Lithiumaccu’s`. Het spanningsfilter gebruikt uitsluitend `Nominal Voltage` uit de spreadsheet, genormaliseerd als `Nominale spanning: 12,8 V`. Spanningen uit beschrijvingen, serieaansluitingen en laadspecificaties worden niet als nominale spanning gebruikt. Alleen als het spreadsheetveld ontbreekt mag het exact benoemde nominale specificatieveld van de officiële pagina worden gebruikt. Import, verrijking en filterverversing gebruiken dezelfde classificatiefunctie in `app/suppliers/ultimatron_classification.py`.
+
 Selecteer Ultimatron → Bron & import → 8. Verrijkingsregels → Ultimatron-spreadsheetartikelen verrijken. Volg de voortgang met Voortgang vernieuwen. De taak verwerkt bestaande PIM-artikelen waarvan het bronartikelnummer overeenkomt met de gekoppelde spreadsheetkolom. De categorie vormt alleen een URL-index. Ontbrekende SKU’s worden exact gezocht via de officiële zoekfunctie. Een niet gevonden SKU blijft ongewijzigd in PIM; een vergelijkbare variant wordt niet gebruikt.
 
 Een procesvergrendeling voorkomt gelijktijdige runs. De catalogusroute mag geen producten aanmaken: zowel vooraf als direct voor opslag wordt gecontroleerd of de SKU nog bestaat. Zo wordt een tijdens de taak verwijderd artikel niet opnieuw aangemaakt. Prijzen, voorraad en handmatig vergrendelde inhoud blijven behouden.
@@ -39,6 +41,8 @@ Controleer dat de catalogus geen websiteartikelen toevoegt, verwijderde SKU’s 
 - Websitewijzigingen en individuele vertaalfouten worden apart gemeld.
 
 ## Changelog
+
+- 2026-09-16: productgroep en nominale spanningsfilters voor alle 17 spreadsheetartikelen hersteld: 12,8 V (10), 25,6 V (3), 38,4 V (1), 51,2 V (3). Zes classificatietests en twaalf verrijkingstests slagen.
 
 - 2026-09-16: categorie-import toegevoegd, vervolgens gecorrigeerd naar uitsluitend spreadsheetartikelen; verkeerde categorierun gestopt en onbedoelde toevoegingen teruggedraaid.
 - 2026-09-16: leverancierneutrale melding voor ontbrekende afbeeldingen.

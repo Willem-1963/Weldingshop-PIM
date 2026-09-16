@@ -12,6 +12,8 @@ Tab 5 heeft directe netto inkoopprijsinvoer per artikel, met prijsbescherming bi
 
 ## Ultimatron
 
+Indeling hersteld: alle 17 artikelen onder Lithiumaccu’s. Nominale spanning uit de spreadsheet: 12,8 V (10), 25,6 V (3), 38,4 V (1), 51,2 V (3). Prijzen behouden; 18 gerichte classificatie- en verrijkingstests slagen.
+
 Herstelrun afgerond: 7 verrijkt, 10 niet exact gevonden, 0 verwerkingsfouten. Vertaling per tekstveld voorkomt het samenvoegen van technische eigenschappen en bewaakt technische waarden op hun oorspronkelijke plek. 23 relevante tests slagen.
 
 Tab 8 verrijkt uitsluitend de 17 geïmporteerde spreadsheetartikelen. De Franse categorie en zoekfunctie leveren 7 exacte matches; 10 SKU’s worden niet door een vergelijkbare variant vervangen. De oude categorierun is gestopt en vijf onbedoelde toevoegingen zijn teruggedraaid, inclusief ULM-12-200. Zie `docs/ULTIMATRON_ENRICHMENT.md`.

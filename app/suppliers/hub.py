@@ -2827,6 +2827,9 @@ def refresh_product_filters(slug: str) -> dict[str, int]:
                 if field_map.get("execution")
                 else _derived_execution(row["source_title"] or "", group)
             )
+            if slug == "ultimatron":
+                from app.suppliers.ultimatron_classification import battery_classification
+                group, filters = battery_classification(raw)
             conn.execute(
                 """
                 UPDATE products SET product_group_name=?,filter_values_json=?,
@@ -3133,6 +3136,11 @@ def import_records(
                 if field_map.get("execution")
                 else _derived_execution(title, normalized["product_group_name"])
             )
+            if slug == "ultimatron":
+                from app.suppliers.ultimatron_classification import battery_classification
+                group, filters = battery_classification(record)
+                normalized["product_group_name"] = group
+                normalized["filter_values_json"] = json.dumps(filters, ensure_ascii=False)
             normalized["subcategory_3"] = ""
             normalized["subcategory_4"] = ""
             normalized["subcategory_5"] = ""

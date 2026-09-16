@@ -6,7 +6,7 @@ Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leveranci
 
 - [Handmatige inkoopprijzen](MANUAL_PURCHASE_PRICES.md): netto inkoopprijs per artikel in tab 5.
 
-- [Ultimatron-spreadsheetverrijking](ULTIMATRON_ENRICHMENT.md): uitsluitend bestaande spreadsheet-SKU’s, exacte officiële productpagina’s en Nederlandse vertaling via tab 8.
+- [Ultimatron-spreadsheetverrijking](ULTIMATRON_ENRICHMENT.md): bestaande spreadsheet-SKU’s, Nederlandse vertaling en indeling op nominale spanning.
 
 ## Projectstatus
 
