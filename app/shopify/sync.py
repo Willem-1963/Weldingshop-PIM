@@ -36,6 +36,9 @@ from app.suppliers.hub import (
 from app.suppliers.quality import quality_policy_for
 from app.suppliers.routes import supplier_route
 from app.suppliers.category_locks import locked_metafields
+from app.suppliers.rhodius_sales_unit import (
+    apply_shopify_sales_unit, sales_unit_rule, shopify_stock_quantity,
+)
 
 
 Progress = Callable[[int, str], None]
@@ -1714,6 +1717,9 @@ def _mapped_metafields(
 
 
 def _eligible(product: dict[str, Any]) -> bool:
+    rhodius_rule = sales_unit_rule(product)
+    if rhodius_rule and rhodius_rule["warning"]:
+        return False
     price = _selling_price(product)
     has_image = bool(
         product.get("images") or product.get("_has_shopify_image")
@@ -1851,6 +1857,12 @@ def _validate_product_content_gate(
 def _input(
     product: dict[str, Any], existing: dict[str, Any] | None
 ) -> dict[str, Any]:
+    rule = sales_unit_rule(product)
+    if rule and rule["warning"] and not str(product.get("sku", "")).startswith("TEST-"):
+        raise ValueError(
+            f"Rhodius {product['sku']}: {rule['warning']}. "
+            "Alleen een afzonderlijk TEST-concept kan zonder deze GTIN worden gemaakt."
+        )
     route = supplier_route(str(product.get("_supplier_slug") or ""))
     mapped_title = _mapped(product, "product.title")
     existing_title = (
@@ -2085,6 +2097,11 @@ def _input(
             for item in files
         ):
             files.append(variant_file)
+    apply_shopify_sales_unit(
+        product, result, price=price,
+        cost=mapped_cost if mapped_cost not in (None, "") else product.get("cost_price"),
+        compare_at=compare_at if compare_at not in (None, "") else None,
+    )
     return result
 
 
@@ -2305,6 +2322,8 @@ def _price_only_variant_rows(
     """
     variants_by_product: dict[str, list[dict[str, Any]]] = {}
     for product in products:
+        if sales_unit_rule(product) is not None:
+            raise ValueError("Rhodius VE-regel vereist volledige synchronisatie van barcode, prijs en gewicht; alleen prijzen bijwerken is niet toegestaan.")
         match = existing.get(str(product.get("sku") or "").upper())
         price = _selling_price(product)
         if not match:
@@ -3343,7 +3362,7 @@ def sync_all_products(
             {
                 "inventoryItemId": refreshed[product["sku"].upper()]["variant"]["inventoryItem"]["id"],
                 "locationId": location_id,
-                "quantity": int(
+                "quantity": shopify_stock_quantity(product,
                     _mapped_any(
                         product,
                         "variant.inventoryQuantities",
@@ -3672,6 +3691,11 @@ def upload_test_product(
 
     client = ShopifyClient.from_settings()
     existing_variant = client.find_variant_by_sku(test_sku)
+    from app.product_maker_standalone.shopify import _shopify_image_source
+    source["images"] = [
+        {**image, "image_url": _shopify_image_source(client, image["image_url"])}
+        for image in source["images"]
+    ]
     existing = (
         {
             "product": {
@@ -3686,7 +3710,8 @@ def upload_test_product(
         if existing_variant else None
     )
     product_input = _input(source, existing)
-    product_input["title"] = source["source_title"]
+    if sales_unit_rule(source) is None:
+        product_input["title"] = source["source_title"]
     product_input["handle"] = (
         existing["product"]["handle"]
         if existing else source["shopify_handle"]

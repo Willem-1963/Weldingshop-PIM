@@ -1197,6 +1197,13 @@ def render_typed_transformation_rules(
         "Shopify-concept met een TEST-SKU en de tag "
         "`testproduct_verwijder_deze`. Het echte product wordt niet gewijzigd."
     )
+    if supplier_slug == "rhodius-abrasives-gmbh":
+        st.info(
+            "Rhodius-exportregel: bestelaantal 1 is één VE. VE 1 gebruikt GTIN-code per stuk; "
+            "VE groter dan 1 gebruikt GTIN/verpakking. Prijzen per stuk en stukgewicht "
+            "worden omgerekend naar VE. Een ontbrekende GTIN krijgt een controlelabel "
+            "en conceptstatus, zonder vervanging door de stuk-GTIN."
+        )
     if st.button(
         "Geselecteerd product als testproduct uploaden",
         type="secondary",

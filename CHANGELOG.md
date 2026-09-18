@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 2026-09-18
+
+- Rhodius: VE bepaalt de Shopify-barcode, prijs, gewicht en voorraadeenheid. Ontbrekende verpakkings-GTIN wordt gemarkeerd in testconcepten en blokkeert reguliere export. Negen afzonderlijke testconcepten gemaakt. Lokale PIM-afbeeldingen worden bij testupload via Shopify-staging verstuurd.
+
 ## 2026-09-16
 
 - Ultimatron-indeling genormaliseerd naar Lithiumaccu’s; één nominale spanning uit de spreadsheet per artikel, zonder serie- en laadspanningen uit beschrijvingen. Geldt bij import, verrijking en filterverversing. Alle 17 artikelen hersteld.

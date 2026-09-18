@@ -8,6 +8,8 @@ Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leveranci
 
 - [Ultimatron-spreadsheetverrijking](ULTIMATRON_ENRICHMENT.md): bestaande spreadsheet-SKU’s, Nederlandse vertaling en indeling op nominale spanning.
 
+- [Rhodius VE en GTIN](RHODIUS_SALES_UNIT.md): exportregel en negen Shopify-testconcepten.
+
 ## Projectstatus
 
 - `README.md` - Centrale startpagina met status, architectuur en belangrijkste verwijzingen.

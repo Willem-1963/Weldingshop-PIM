@@ -1,6 +1,8 @@
 # Weldingshop PIM - Project Status
 
-Laatst bijgewerkt: 2026-09-16
+Laatst bijgewerkt: 2026-09-18
+
+Rhodius: VE bepaalt Shopify-verkoopeenheid en GTIN. Negen TEST-concepten aangemaakt; vier missen een verpakkings-GTIN. Zie `docs/RHODIUS_SALES_UNIT.md`.
 
 De melding voor ontbrekende productafbeeldingen noemt geen onjuiste leverancier meer. Zij meldt uitsluitend dat voor het geselecteerde artikel nog geen afbeelding in PIM is opgeslagen.
 
