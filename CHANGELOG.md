@@ -2,7 +2,7 @@
 
 ## 2026-09-18
 
-- Rhodius: VE bepaalt de Shopify-barcode, prijs, gewicht en voorraadeenheid. Ontbrekende verpakkings-GTIN wordt gemarkeerd in testconcepten en blokkeert reguliere export. Negen afzonderlijke testconcepten gemaakt. Lokale PIM-afbeeldingen worden bij testupload via Shopify-staging verstuurd.
+- Rhodius: stukbarcode en verpakkingsbarcode krijgen afzonderlijke scaneenheden, gekoppeld via native Shopify-voorraadrelaties. Negen bronartikelen leveren 17 testconcepten. Verpakkingsprijs uit het PIM blijft behouden bij de koppeling. Beide GTIN’s zijn zoekbaar en zichtbaar in het PIM; websitekeuze staat nog open. Vier verpakkings-GTIN’s ontbreken. 45 regressietests slagen.
 
 ## 2026-09-16
 

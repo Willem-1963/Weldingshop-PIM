@@ -1,4 +1,4 @@
-"""Rhodius: one Shopify item represents the source VE, not the price unit."""
+"""Rhodius has two scannable units; online publication is a separate choice."""
 from __future__ import annotations
 
 import json
@@ -36,13 +36,25 @@ def sales_unit_rule(product: dict) -> dict | None:
     price_unit = str(raw.get("Prijseenheid") or "").strip()
     if price_unit not in {"€/stuk", "€/pak", "€/blik"}:
         raise ValueError(f"Rhodius {product.get('sku')}: onbekende prijseenheid {price_unit!r}.")
-    barcode = piece if quantity == 1 else package
+    unit = product.get("_rhodius_sales_unit", "piece")
+    if unit not in {"piece", "package"}:
+        raise ValueError(f"Onbekende Rhodius-eenheid: {unit}")
+    units_per_item = quantity if unit == "package" else 1
+    barcode = piece if units_per_item == 1 else package
+    warning = "" if barcode else "GTIN verkoopeenheid ontbreekt; controle vereist"
+    if quantity > 1 and unit == "package" and package and package == piece:
+        barcode = ""
+        warning = "Stuk en verpakking hebben dezelfde GTIN bij VE > 1; controle vereist"
+    price_quantity = 1 if price_unit == "€/stuk" else quantity
     return {
-        "quantity": quantity, "barcode": barcode,
-        "barcode_source": "GTIN-code" if quantity == 1 else provenance,
-        "price_factor": quantity if price_unit == "€/stuk" else 1,
-        "label": "1 stuk" if quantity == 1 else f"Verpakking à {quantity} stuks",
-        "warning": "" if barcode else "GTIN verkoopeenheid ontbreekt; controle vereist",
+        "quantity": quantity, "unit": unit, "units_per_item": units_per_item,
+        "gtin_piece": piece, "gtin_package": package, "barcode": barcode,
+        "barcode_source": "GTIN-code" if units_per_item == 1 else provenance,
+        "price_quantity": price_quantity,
+        "price_factor": units_per_item / price_quantity,
+        "label": "1 stuk" if units_per_item == 1 else f"Verpakking à {quantity} stuks",
+        "warning": warning,
+        "online_policy": "undecided",
         "piece_weight": raw.get("Gewicht in kg/stuk"),
         "package_weight": raw.get("Gewicht/VE"),
     }
@@ -61,22 +73,26 @@ def apply_shopify_sales_unit(product: dict, payload: dict, *, price=None, cost=N
         variant["compareAtPrice"] = str(compare_at)
     for key in ("price", "compareAtPrice"):
         if variant.get(key) is not None:
-            variant[key] = f"{Decimal(str(variant[key])) * rule['price_factor']:.2f}"
+            variant[key] = f"{Decimal(str(variant[key])) * rule['units_per_item'] / rule['price_quantity']:.2f}"
     item = variant["inventoryItem"]
     if cost is not None:
         item["cost"] = str(cost)
     if item.get("cost") is not None:
-        item["cost"] = f"{Decimal(str(item['cost'])) * rule['price_factor']:.2f}"
+        item["cost"] = f"{Decimal(str(item['cost'])) * rule['units_per_item'] / rule['price_quantity']:.2f}"
     if rule["package_weight"] or rule["piece_weight"] is not None:
         weight = (
             Decimal(str(rule["package_weight"]).lower().replace("kg", "").strip().replace(",", "."))
-            if rule["package_weight"] else
-            Decimal(str(rule["piece_weight"]).replace(",", ".")) * rule["quantity"]
+            if rule["package_weight"] and rule["units_per_item"] > 1 else
+            Decimal(str(rule["piece_weight"]).replace(",", ".")) * rule["units_per_item"]
+            if rule["piece_weight"] is not None else
+            Decimal(str(rule["package_weight"]).lower().replace("kg", "").strip().replace(",", ".")) / rule["quantity"]
         )
         item["measurement"] = {"weight": {"value": float(weight), "unit": "KILOGRAMS"}}
     label = rule["label"]
     payload["title"] = f"{payload['title']} — {label}"[:255]
-    payload["descriptionHtml"] += f"<p><strong>Verkoopeenheid: {label}.</strong> Bestelaantal 1 = {rule['quantity']} stuk(s).</p>"
+    payload["descriptionHtml"] += f"<p><strong>Verkoopeenheid: {label}.</strong> Bestelaantal 1 = {rule['units_per_item']} stuk(s).</p>"
+    if rule["units_per_item"] == 1 and rule["quantity"] > 1:
+        payload["descriptionHtml"] += f"<p>Ook beschikbaar als verpakking à {rule['quantity']} stuks.</p>"
     if rule["warning"]:
         payload["status"] = "DRAFT"
         payload["tags"] = list(dict.fromkeys([*payload.get("tags", []), "controle_gtin_verkoopeenheid"]))
@@ -84,5 +100,6 @@ def apply_shopify_sales_unit(product: dict, payload: dict, *, price=None, cost=N
 
 def shopify_stock_quantity(product: dict, value) -> int:
     rule = sales_unit_rule(product)
-    factor = rule["price_factor"] if rule else 1
-    return math.floor(float(value or 0) / factor)
+    if rule:
+        return math.floor(Decimal(str(value or 0)) * rule["price_quantity"] / rule["units_per_item"])
+    return int(value or 0)

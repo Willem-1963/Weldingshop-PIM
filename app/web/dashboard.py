@@ -1199,10 +1199,10 @@ def render_typed_transformation_rules(
     )
     if supplier_slug == "rhodius-abrasives-gmbh":
         st.info(
-            "Rhodius-exportregel: bestelaantal 1 is één VE. VE 1 gebruikt GTIN-code per stuk; "
-            "VE groter dan 1 gebruikt GTIN/verpakking. Prijzen per stuk en stukgewicht "
-            "worden omgerekend naar VE. Een ontbrekende GTIN krijgt een controlelabel "
-            "en conceptstatus, zonder vervanging door de stuk-GTIN."
+            "Rhodius: stukbarcode = 1 stuk; verpakkingsbarcode = het aantal stuks in VE. "
+            "De testupload maakt beide als afzonderlijke concepten met gedeelde stukvoorraad. "
+            "Bij VE 1 volstaat één artikel. De keuze voor verkoop op de website staat nog open. "
+            "Ontbreekt de verpakkings-GTIN, dan krijgt alleen de verpakking een controlelabel."
         )
     if st.button(
         "Geselecteerd product als testproduct uploaden",
@@ -1211,7 +1211,7 @@ def render_typed_transformation_rules(
         key=f"{state_root}_test_upload",
     ):
         try:
-            with st.spinner("Eén testproduct naar Shopify uploaden…"):
+            with st.spinner("Testartikel(en) naar Shopify uploaden…"):
                 result = upload_test_product(
                     supplier_slug,
                     test_product_sku,
@@ -1220,13 +1220,15 @@ def render_typed_transformation_rules(
                         if processing_type == "text" else None
                     ),
                 )
-            st.success(
-                f"Testproduct {result['sku']} als Shopify-concept "
-                f"opgeslagen met tag {result['tag']}."
-            )
-            st.markdown(
-                f"[Testproduct openen in Shopify]({result['admin_url']})"
-            )
+            units = result.get("units") or [result]
+            st.success(f"{len(units)} testconcept(en) opgeslagen met tag {result['tag']}.")
+            for unit in units:
+                label = (unit.get("unit_rule") or {}).get("label") or unit["sku"]
+                st.markdown(f"[{label} — {unit['sku']}]({unit['admin_url']})")
+                if (unit.get("unit_rule") or {}).get("warning"):
+                    st.warning(unit["unit_rule"]["warning"])
+            if result.get("inventory_relationship"):
+                st.caption("Voorraad gekoppeld: de VE-verpakking bevat het vastgelegde aantal losse stuks.")
         except Exception as exc:
             st.error(f"Testupload mislukt: {exc}")
 
@@ -2922,6 +2924,28 @@ def render_certilas_minimum_sales_price(product: dict) -> None:
     st.metric("Minimale verkoopprijs", euro(minimum_sales_price))
 
 
+def render_rhodius_sales_units(product: dict) -> None:
+    from app.shopify.rhodius_test_units import sales_unit_preview
+    try:
+        units = sales_unit_preview(product)
+    except ValueError as exc:
+        st.warning(str(exc))
+        return
+    st.markdown("**Scannen: stuk en verpakking**")
+    st.dataframe(pd.DataFrame([{
+        "Eenheid": unit["label"], "Barcode": unit["barcode"] or "Ontbreekt",
+        "Stuks per scan": unit["units_per_item"],
+        "Websiteverkoop": "Nog te bepalen", "Controle": unit["warning"],
+    } for unit in units]), hide_index=True, width="stretch")
+    st.caption("Stukbarcode = één stuk. Doosbarcode = VE stuks. De websitekeuze staat los van scannen in de winkel.")
+    shop = get_shopify_settings().get("shop_domain")
+    if shop:
+        for unit in units:
+            if unit["test_product_id"]:
+                number = unit["test_product_id"].rsplit("/", 1)[-1]
+                st.markdown(f"[Testconcept: {unit['label']}](https://{shop}/admin/products/{number})")
+
+
 @st.dialog("Productinformatie", width="large")
 def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
     product = get_supplier_product(supplier_slug, sku)
@@ -2940,6 +2964,8 @@ def show_supplier_product_details(supplier_slug: str, sku: str) -> None:
         or sku
     )
     st.caption(f"Leverancier: {supplier_slug} · SKU: {sku}")
+    if supplier_slug == "rhodius-abrasives-gmbh":
+        render_rhodius_sales_units(product)
     if st.button(
         "Sla op in Shopify",
         key=f"supplier_product_shopify_{supplier_slug}_{sku}",
@@ -8054,7 +8080,7 @@ with products_tab:
             "Zoek producten",
             placeholder="SKU of een deel van de productnaam",
             key=f"products_search_{selected_slug}",
-            help="Zoekt op SKU, productnaam, AI-productnaam of EAN.",
+            help="Zoekt op SKU, productnaam, AI-productnaam of EAN; bij Rhodius op stuk- én verpakkingsbarcode.",
         )
     with products_limit_col:
         products_limit_by_supplier = st.session_state.setdefault(
@@ -8443,6 +8469,8 @@ with viewer_tab:
         st.info("Geen producten gevonden.")
 
     if product:
+        if selected_slug == "rhodius-abrasives-gmbh":
+            render_rhodius_sales_units(product)
         title = product.get("ai_title") or product.get("source_title") or product["sku"]
         try:
             product_filters = json.loads(

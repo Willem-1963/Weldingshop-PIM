@@ -1720,6 +1720,9 @@ def _eligible(product: dict[str, Any]) -> bool:
     rhodius_rule = sales_unit_rule(product)
     if rhodius_rule and rhodius_rule["warning"]:
         return False
+    if rhodius_rule and rhodius_rule["online_policy"] == "undecided":
+        # Barcode recognition does not authorize publishing new sale units.
+        return False
     price = _selling_price(product)
     has_image = bool(
         product.get("images") or product.get("_has_shopify_image")
@@ -3614,6 +3617,19 @@ def upload_test_product(
     *,
     description_html: str | None = None,
 ) -> dict[str, Any]:
+    if slug == "rhodius-abrasives-gmbh":
+        from app.shopify.rhodius_test_units import upload_test_units
+        return upload_test_units(sku, _upload_test_product_unit, description_html)
+    return _upload_test_product_unit(slug, sku, description_html=description_html)
+
+
+def _upload_test_product_unit(
+    slug: str,
+    sku: str,
+    *,
+    description_html: str | None = None,
+    rhodius_unit: str = "piece",
+) -> dict[str, Any]:
     """Create or update one isolated draft product for visual testing."""
     settings = get_shopify_settings()
     if not settings.get("enabled"):
@@ -3628,6 +3644,7 @@ def upload_test_product(
     )
     if not source:
         raise ValueError(f"Product {sku} staat niet actueel in de PIM.")
+    source["_rhodius_sales_unit"] = rhodius_unit
 
     try:
         source["_raw_data"] = json.loads(
@@ -3665,6 +3682,8 @@ def upload_test_product(
     source["inventory_policy"] = (
         "continue" if continue_selling else "deny"
     )
+    if slug == "rhodius-abrasives-gmbh":
+        source["inventory_policy"] = "deny"
     source["_delivery_time_notice"] = _configured_delivery_time_notice(
         supplier, continue_selling
     )
@@ -3672,14 +3691,19 @@ def upload_test_product(
         source["html_description"] = description_html
 
     original_sku = source["sku"]
-    test_sku = f"TEST-{original_sku}"[:255]
+    unit_rule = sales_unit_rule(source)
+    unit_suffix = (
+        "-STUK" if unit_rule and unit_rule["quantity"] > 1
+        and rhodius_unit == "piece" else ""
+    )
+    test_sku = f"TEST-{original_sku}{unit_suffix}"[:255]
     source["sku"] = test_sku
     source["source_title"] = (
         f"[TEST] {source.get('source_title') or source.get('source_description') or original_sku}"
     )[:255]
     source["ai_title"] = ""
     source["shopify_handle"] = (
-        f"test-{source.get('shopify_handle') or _handle('', original_sku)}"
+        f"test-{source.get('shopify_handle') or _handle('', original_sku)}{unit_suffix.lower()}"
     )[:255]
     try:
         tags = json.loads(source.get("ai_tags_json") or "[]")
@@ -3691,6 +3715,11 @@ def upload_test_product(
 
     client = ShopifyClient.from_settings()
     existing_variant = client.find_variant_by_sku(test_sku)
+    if existing_variant and (
+        (existing_variant.get("product") or {}).get("status") != "DRAFT"
+        or not str((existing_variant.get("product") or {}).get("title", "")).startswith("[TEST]")
+    ):
+        raise ValueError(f"{test_sku} is geen afzonderlijk TEST-concept; upload gestopt.")
     from app.product_maker_standalone.shopify import _shopify_image_source
     source["images"] = [
         {**image, "image_url": _shopify_image_source(client, image["image_url"])}
@@ -3727,7 +3756,7 @@ def upload_test_product(
         """
         mutation TestProduct($input:ProductSetInput!){
           productSet(synchronous:true,input:$input){
-            product{id title handle status tags}
+            product{id title handle status tags variants(first:1){nodes{id sku barcode price}}}
             userErrors{field message code}
           }
         }
@@ -3751,6 +3780,8 @@ def upload_test_product(
         "status": product.get("status"),
         "sku": test_sku,
         "tag": "testproduct_verwijder_deze",
+        "variant": ((product.get("variants") or {}).get("nodes") or [{}])[0],
+        "unit_rule": unit_rule,
         "admin_url": (
             f"https://{client.shop_domain}/admin/products/{numeric_id}"
         ),

@@ -3729,6 +3729,21 @@ def migrate_legacy_v2(slug: str, legacy_path: Path) -> dict[str, int]:
     return stats
 
 
+def _source_barcode_search(slug: str, pattern: str) -> tuple[str, tuple]:
+    """Search Rhodius's own two GTINs, never GTINs in catalogue neighbours."""
+    if slug != "rhodius-abrasives-gmbh":
+        return "", ()
+    return """ OR EXISTS (
+        SELECT 1 FROM json_each(CASE WHEN json_valid(raw_data_json)
+            THEN raw_data_json ELSE '{}' END) AS barcode
+        WHERE barcode.key IN ('GTIN-code','GTIN/verpakking','gtin_piece','gtin_package')
+          AND CAST(barcode.value AS TEXT) LIKE ?)
+        OR CAST(json_extract(CASE WHEN json_valid(raw_data_json)
+            THEN raw_data_json ELSE '{}' END,
+            '$.website_import.technical_specifications.gtin_code_verpakkingseenheid') AS TEXT) LIKE ?
+    """, (pattern, pattern)
+
+
 def list_products(
     slug: str,
     limit: int = 500,
@@ -3737,9 +3752,10 @@ def list_products(
     path = init_supplier_database(slug)
     search = query.strip()
     pattern = f"%{search}%"
+    barcode_sql, barcode_params = _source_barcode_search(slug, pattern)
     with _connect(path) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT sku,source_title,ai_title,source_description,ean,price,sale_price,
                 stock_quantity,available,
                 purchase_unit,sales_unit,purchase_units_per_sales_unit,
@@ -3755,9 +3771,10 @@ def list_products(
                 OR ai_title LIKE ? COLLATE NOCASE
                 OR source_description LIKE ? COLLATE NOCASE
                 OR ean LIKE ? COLLATE NOCASE
+                {barcode_sql}
             ORDER BY sku LIMIT ?
             """,
-            (search, pattern, pattern, pattern, pattern, pattern, limit),
+            (search, pattern, pattern, pattern, pattern, pattern, *barcode_params, limit),
         ).fetchall()
     result = []
     for row in rows:
@@ -3780,17 +3797,19 @@ def list_products(
 def search_supplier_products(slug: str, query: str = "", limit: int = 100) -> list[dict[str, Any]]:
     path = init_supplier_database(slug)
     pattern = f"%{query.strip()}%"
+    barcode_sql, barcode_params = _source_barcode_search(slug, pattern)
     with _connect(path) as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT sku,source_title,price,sale_price,available,source_present
             FROM products
             WHERE ?='' OR sku LIKE ? OR source_title LIKE ? OR ean LIKE ?
+                {barcode_sql}
             ORDER BY CASE WHEN UPPER(sku)=UPPER(?) THEN 0 ELSE 1 END,
                      source_present DESC, source_title COLLATE NOCASE, sku
             LIMIT ?
             """,
-            (query.strip(), pattern, pattern, pattern, query.strip(), limit),
+            (query.strip(), pattern, pattern, pattern, *barcode_params, query.strip(), limit),
         ).fetchall()
     return [dict(row) for row in rows]
 

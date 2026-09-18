@@ -2,7 +2,7 @@
 
 Laatst bijgewerkt: 2026-09-18
 
-Rhodius: VE bepaalt Shopify-verkoopeenheid en GTIN. Negen TEST-concepten aangemaakt; vier missen een verpakkings-GTIN. Zie `docs/RHODIUS_SALES_UNIT.md`.
+Rhodius: beide barcodes blijven scanbaar via afzonderlijke stuk- en VE-eenheden. Negen bronartikelen leveren 17 TEST-concepten met acht native voorraadkoppelingen. Onlinekeuze staat nog open; vier verpakkings-GTIN’s ontbreken. Beide barcodes zijn zoekbaar in het PIM. Zie `docs/RHODIUS_SALES_UNIT.md`.
 
 De melding voor ontbrekende productafbeeldingen noemt geen onjuiste leverancier meer. Zij meldt uitsluitend dat voor het geselecteerde artikel nog geen afbeelding in PIM is opgeslagen.
 

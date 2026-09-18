@@ -8,7 +8,7 @@ Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leveranci
 
 - [Ultimatron-spreadsheetverrijking](ULTIMATRON_ENRICHMENT.md): bestaande spreadsheet-SKU’s, Nederlandse vertaling en indeling op nominale spanning.
 
-- [Rhodius VE en GTIN](RHODIUS_SALES_UNIT.md): exportregel en negen Shopify-testconcepten.
+- [Rhodius VE en GTIN](RHODIUS_SALES_UNIT.md): stuk- en verpakkingsbarcodes, gedeelde voorraad en 17 Shopify-testconcepten.
 
 ## Projectstatus
 
