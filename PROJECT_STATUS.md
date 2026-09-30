@@ -5,6 +5,8 @@ Tab 4 behoudt de bestaande keuze ‘Voorraad uit Shopify gebruiken’. Het extra
 
 Laatst bijgewerkt: 2026-09-30
 
+Rhodius normale sync gebruikt gerichte kostprijs-/barcodeupdates voor bestaande `SKU`-verpakkingen en `SKU-STUK`-artikelen. Shopify beheert verkoopprijzen en korting; voorraadproducten en componentkoppelingen blijven ongemoeid. Er worden geen varianten gemaakt of verwijderd. Zie `docs/RHODIUS_SALES_UNIT.md`; de automatische planning is niet aangezet.
+
 Normale leverancierssynchronisatie behoudt de Shopify-boomlaag op bestaande producten voor alle leveranciers; commerciële gegevens blijven bijwerkbaar. Zie `docs/SHOPIFY_TREE_PROTECTION.md` en `docs/VP_SHOPIFY_FIELD_OWNERSHIP.md`. Lege locatie-invoer kan geen bestaande Shopify-locatie verwijderen.
 
 Rhodius: beide barcodes blijven scanbaar via afzonderlijke stuk- en VE-eenheden. Negen bronartikelen leveren 17 TEST-concepten met acht native voorraadkoppelingen. Onlinekeuze staat nog open; vier verpakkings-GTIN’s ontbreken. Beide barcodes zijn zoekbaar in het PIM. Zie `docs/RHODIUS_SALES_UNIT.md`.

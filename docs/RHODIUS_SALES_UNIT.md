@@ -1,5 +1,42 @@
 # Rhodius: stukbarcode, verpakkingsbarcode en VE
 
+## Actuele normale synchronisatie — 2026-09-30
+
+De bestaande Shopify-structuur is leidend: `SKU-STUK` verkoopt één stuk, `SKU`
+verkoopt de verpakking met korting, `SKU-STOCK` houdt de gedeelde voorraad bij.
+Verkoopprijzen en korting worden in Shopify beheerd.
+
+`sync_all_products` gebruikt voor Rhodius uitsluitend gerichte
+`productVariantsBulkUpdate`-updates uit `app/shopify/rhodius_sync.py`:
+
+- Stukbarcode uit `GTIN-code`; verpakkingsbarcode uit `GTIN/verpakking`.
+- De netto PIM-kostprijs wordt omgerekend volgens `Prijseenheid` en `VE`, per
+  stuk of per verpakking; afronding gebeurt na de omrekening. Een expliciete
+  mapping van de inkoopprijs wordt daarbij gerespecteerd.
+- Ontbrekende of tegenstrijdige bronbarcodes wissen geen Shopify-barcodes.
+  Onbruikbare brongegevens worden in het syncresultaat gemeld.
+- Verkoopprijzen, korting, voorraadaantallen, `SKU-STOCK`, componentrelaties,
+  variantopties, productinhoud, media, publicatie en boomvelden worden niet
+  geschreven. Er worden geen nieuwe eenheden gemaakt of bestaande verwijderd.
+
+Deze route vervangt de volledige productvervanging voor de normale
+leverancierssync. De historische testuploads hieronder houden hun expliciete
+eenheid en afzonderlijke beheerstroom. Bronimport, lokale prijsregels en
+verrijking in de scheduler blijven bestaan; ze zetten geen verkoopprijs door
+via deze Rhodius-route.
+
+Validatie: 11 gerichte regressietests, inclusief de normale sync-entrypoint,
+en schema-validatie tegen Shopify Admin API 2026-07. De dry run op de eerder
+uitgelezen Shopify-snapshot controleert 1.820 verkoopeenheden (1.067 verpakking,
+753 stuk) en vindt 737 kostprijsverschillen en 12 barcodeverschillen. Er zijn
+395 bronwaarschuwingen; bestaande waarden zonder bruikbare bron blijven staan.
+Er staan geen `-STOCK`-SKU's in deze leverancierssnapshot; de bescherming volgt
+uit het ontbreken van voorraad-/componentupdates en de expliciete SKU-selectie,
+en is niet live op een voorraadproduct getest.
+
+Rapport: `output/rhodius-units-dry-run-20260930/`. De automatische planning is
+niet aangezet en er is geen echte Shopify-update uitgevoerd.
+
 ## Doel
 Een losse schijf en een doos moeten beide scanbaar zijn. De stukbarcode betekent één stuk; de doosbarcode betekent het aantal stuks in VE. De keuze om online stukken, verpakkingen of beide te verkopen staat hier los van en wordt later gemaakt.
 

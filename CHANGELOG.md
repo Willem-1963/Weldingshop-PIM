@@ -2,6 +2,9 @@
 
 ## 2026-09-30
 
+- Rhodius normale sync aangepast aan de bestaande Shopify-verkoopeenheden: `SKU` is verpakking, `SKU-STUK` is stuk. Gerichte variantupdates zetten uitsluitend de eigen netto kostprijs en prijslijstbarcode door. Verkoopprijzen, Shopify-korting, voorraadproducten en voorraadkoppelingen blijven behouden; geen volledige product-/variantenlijstvervanging meer.
+- Ontbrekende of tegenstrijdige GTIN's worden gemeld zonder een bestaande barcode te wissen. De nieuwe dry run op de Shopify-snapshot controleert 1.820 verkoopeenheden: 737 kostprijsverschillen, 12 barcodeverschillen, geen prijs-, voorraad- of variantverwijderingen.
+
 - Normale synchronisatie behoudt tags, categorie en custom-boomvelden op bestaande Shopify-producten voor alle leveranciers. Commerciële velden blijven bijwerkbaar; metavelden worden afzonderlijk bijgewerkt zonder bestaande lijsten te vervangen.
 - VP-boomimport vereist expliciete goedkeuring; aanvullende-productensync voor VP wordt overgeslagen. Bescherming en regressietests vastgelegd.
 - Lege locatiecodes wissen geen Shopify-locatie meer; locatiebewerkingen krijgen een auditlog. Verouderde verwijdertest aangepast aan deze bescherming.

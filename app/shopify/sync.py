@@ -3451,6 +3451,34 @@ def sync_all_products(
     if not settings.get("enabled"):
         raise ValueError("Shopify-synchronisatietoestemming staat uit.")
     supplier = get_supplier(slug) or {}
+    if slug == "rhodius-abrasives-gmbh":
+        # Existing sale units and Shopify inventory components must never pass
+        # through productSet or the ordinary inventory/status cleanup pipeline.
+        from app.shopify.rhodius_sync import UPDATE_MUTATION, plan_existing_units
+
+        source = _source_products(slug)
+        for product in source:
+            product["_shopify_field_mapping"] = supplier.get("shopify_field_mapping") or {}
+            mapped_cost = _mapped(product, "inventory.cost")
+            if mapped_cost not in (None, ""):
+                product["_rhodius_source_cost"] = mapped_cost
+        client = ShopifyClient.from_settings()
+        existing = _shopify_products(client, supplier.get("name") or slug, slug,
+                                     progress_callback=progress_callback)
+        plan = plan_existing_units(source, existing)
+        _run_rows(client, plan["rows"], UPDATE_MUTATION,
+                  f"{slug}-sale-units.jsonl",
+                  f"pim-{slug}-sale-units-{uuid.uuid4().hex[:8]}",
+                  progress_callback, 5, 95,
+                  "Stuk- en verpakkingskostprijzen en bronbarcodes bijwerken")
+        _progress(progress_callback, 100, "Rhodius-verkoopeenheden bijgewerkt; Shopify-structuur behouden")
+        return {"ok": True, "mode": "rhodius_existing_sale_units",
+                "products": len({row["productId"] for row in plan["rows"]}),
+                "variants": len(plan["units"]), "warnings": plan["warnings"],
+                "missing_units": plan["missing_units"],
+                "protected_stock_skus": plan["protected_stock_skus"],
+                "sales_prices_changed": 0, "inventory_quantities_changed": 0,
+                "variants_created": 0, "variants_deleted": 0}
     use_shopify_stock = (
         (supplier.get("request_options") or {}).get("inventory_source") == "shopify"
     )
