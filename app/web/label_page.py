@@ -5,6 +5,8 @@ import hashlib
 import json
 import secrets
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 
@@ -293,6 +295,18 @@ def save_shopify_barcode_for_sku(sku: str, ean: str) -> str:
     return saved
 
 
+def _append_location_audit(entry: dict[str, Any]) -> None:
+    try:
+        log_path = Path("logs/location-metafield-audit.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"at": datetime.now(timezone.utc).isoformat(), **entry}
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        # Audit logging must never break label operations.
+        pass
+
+
 def save_shopify_location_for_sku(sku: str, location: str) -> str:
     """Update only custom.locatie on the exact Shopify product for ``sku``."""
     clean_sku = sku.strip()
@@ -304,7 +318,7 @@ def save_shopify_location_for_sku(sku: str, location: str) -> str:
     data = client.graphql(
         """
         query LabelLocationOwner($query:String!){
-          productVariants(first:10,query:$query){nodes{sku product{id}}}
+          productVariants(first:10,query:$query){nodes{sku product{id metafield(namespace:"custom", key:"locatie"){id value createdAt updatedAt}}}}
         }
         """,
         {"query": f'sku:"{escaped}"'},
@@ -323,28 +337,26 @@ def save_shopify_location_for_sku(sku: str, location: str) -> str:
             f"SKU {clean_sku} verwijst niet naar precies één Shopify-product."
         )
     owner_id = next(iter(product_ids))
+    current_location = next(
+        (
+            str(((node.get("product") or {}).get("metafield") or {}).get("value") or "").strip()
+            for node in exact
+            if str((node.get("product") or {}).get("id") or "") == owner_id
+        ),
+        "",
+    )
     if not clean_location:
-        result = client.graphql(
-            """
-            mutation DeleteLabelLocation($metafields:[MetafieldIdentifierInput!]!){
-              metafieldsDelete(metafields:$metafields){
-                deletedMetafields{ownerId namespace key}
-                userErrors{field message}
-              }
-            }
-            """,
-            {"metafields": [{
-                "ownerId": owner_id, "namespace": "custom", "key": "locatie",
-            }]},
+        _append_location_audit({
+            "action": "empty_location_rejected",
+            "sku": clean_sku,
+            "owner_id": owner_id,
+            "old_location": current_location,
+            "new_location": "",
+        })
+        raise ValueError(
+            "Locatiecode is leeg. Leeg opslaan wist geen Shopify custom.locatie meer; "
+            "gebruik een expliciete beheeractie als een locatie echt verwijderd moet worden."
         )
-        payload = result.get("metafieldsDelete") or {}
-        errors = payload.get("userErrors") or []
-        if errors:
-            raise RuntimeError(
-                "; ".join(str(error.get("message") or error) for error in errors)
-            )
-        shopify_label_values_for_sku.clear()
-        return ""
     result = client.graphql(
         """
         mutation SaveLabelLocation($metafields:[MetafieldsSetInput!]!){
@@ -378,6 +390,13 @@ def save_shopify_location_for_sku(sku: str, location: str) -> str:
     )
     if saved != clean_location:
         raise RuntimeError("Shopify bevestigde de nieuwe locatiecode niet.")
+    _append_location_audit({
+        "action": "save_location",
+        "sku": clean_sku,
+        "owner_id": owner_id,
+        "old_location": current_location,
+        "new_location": saved,
+    })
     shopify_label_values_for_sku.clear()
     return saved
 

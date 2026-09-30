@@ -433,6 +433,8 @@ def synchronize_complementary_products(
     Keeping these operations behind one entry point prevents a later import
     from leaving the freshly generated automatic links deleted.
     """
+    if slug.casefold() in {"valkenpower", "vp"}:
+        return {"skipped": True, "reason": "shopify_managed_vp_recommendations"}
     client = client or ShopifyClient.from_settings()
     imported = import_shopify_complementary_products(slug, client=client)
     generated = generate_complementary_products(slug)

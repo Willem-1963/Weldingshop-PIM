@@ -176,6 +176,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['prepare', 'apply', 'verify'])
     parser.add_argument('report', type=Path)
+    parser.add_argument('--approve-tree-import', action='store_true',
+                        help='Explicit approval for this import to write/delete Shopify tree fields')
     args = parser.parse_args()
+    if args.action in {'prepare', 'apply'} and not args.approve_tree_import:
+        parser.error('Tree import is disabled without explicit --approve-tree-import approval')
     args.report.mkdir(parents=True, exist_ok=True)
     globals()[args.action](args.report)

@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import requests
 from PIL import Image, UnidentifiedImageError
@@ -35,13 +35,98 @@ from app.suppliers.hub import (
 )
 from app.suppliers.quality import quality_policy_for
 from app.suppliers.routes import supplier_route
-from app.suppliers.category_locks import locked_metafields
+from app.suppliers.category_locks import (
+    COLLECTION_TAG_VALUE_KEYS, locked_collection_tags, locked_metafields,
+    locked_tree_values,
+)
 from app.suppliers.rhodius_sales_unit import (
     apply_shopify_sales_unit, sales_unit_rule, shopify_stock_quantity,
 )
 
 
 Progress = Callable[[int, str], None]
+
+NEW_COLLECTION_TAG_PREFIXES = ("cat-", "filter-")
+BLOCKED_LEGACY_TAG_PREFIXES = ("set_", "set-")
+COLLECTION_CUSTOM_METAFIELD_KEYS = {
+    "productgroep",
+    "uitvoering",
+    "filter",
+    "subcategorie_3",
+    "subcategorie_4",
+    "subcategorie_5",
+    "productsoort",
+    "aandrijving",
+    "model",
+    "capaciteit",
+}
+
+
+def _normalized_tag(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _clean_shopify_tags(tags: Iterable[Any]) -> list[str]:
+    """Normalize outgoing tags and block retired supplier/category tag prefixes."""
+    cleaned = []
+    for tag in tags:
+        normalized = _normalized_tag(tag)
+        if not normalized:
+            continue
+        if normalized.casefold().startswith(BLOCKED_LEGACY_TAG_PREFIXES):
+            continue
+        cleaned.append(normalized)
+    return list(dict.fromkeys(cleaned))
+
+
+def _uses_new_collection_taxonomy(product: dict[str, Any]) -> bool:
+    slug = str(product.get("_supplier_slug") or "").strip().casefold()
+    vendor = str(product.get("vendor") or "").strip().casefold()
+    if slug in {"valkenpower", "vp"} or vendor in {"valkenpower", "vp"}:
+        return True
+    if locked_metafields(product) is not None:
+        return True
+    tags = _effective_tags(product)
+    mapped_tags = _mapped(product, "product.tags")
+    if mapped_tags:
+        tags.extend(
+            tag.strip()
+            for tag in re.split(r"[,;|]", str(mapped_tags))
+            if tag.strip()
+        )
+    return any(
+        tag.casefold().startswith(NEW_COLLECTION_TAG_PREFIXES)
+        for tag in _clean_shopify_tags(tags)
+    )
+
+
+def _collection_tags_from_pim(product: dict[str, Any]) -> list[str]:
+    """Only PIM-supplied new taxonomy tags may drive Shopify collections."""
+    tags = [*locked_collection_tags(product), *_effective_tags(product)]
+    mapped_tags = _mapped(product, "product.tags")
+    if mapped_tags:
+        tags.extend(
+            tag.strip()
+            for tag in re.split(r"[,;|]", str(mapped_tags))
+            if tag.strip()
+        )
+    return [
+        tag for tag in _clean_shopify_tags(tags)
+        if tag.casefold().startswith(NEW_COLLECTION_TAG_PREFIXES)
+    ]
+
+
+def _desired_collection_metafields(
+    product: dict[str, Any],
+) -> dict[str, str] | None:
+    approved = locked_metafields(product)
+    if approved is None:
+        return None
+    return {
+        key: str(value)
+        for key, value in approved.items()
+        if key in COLLECTION_CUSTOM_METAFIELD_KEYS and value
+    }
 
 
 def _shopify_file_url(value: Any) -> str:
@@ -315,10 +400,7 @@ class _RetryableBulkRowError(RuntimeError):
         super().__init__(message)
         self.row_indexes = row_indexes
 
-OUT_OF_STOCK_DISCLAIMER = (
-    "Let op: door het ontbreken van live synchronisatie met de leverancier "
-    "kan de levertijd afwijken."
-)
+OUT_OF_STOCK_DISCLAIMER = ""
 
 
 def _configured_delivery_time_notice(
@@ -448,6 +530,31 @@ def _set_product_delivery_notice(
             "value": notice[:255],
         }
     return list(merged.values())
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(str(value).strip().replace(",", ".")))
+    except (TypeError, ValueError):
+        return None
+
+
+def _raw_shopify_inventory_quantity(product: dict[str, Any]) -> int | None:
+    raw = product.get("_raw_data") or {}
+    candidates = [
+        raw.get("inventory_quantity") if isinstance(raw, dict) else None,
+        ((raw.get("shopify") or {}).get("inventory_quantity")
+         if isinstance(raw, dict) else None),
+        (((raw.get("invoice_catalog") or {}).get("shopify") or {})
+         .get("inventory_quantity") if isinstance(raw, dict) else None),
+    ]
+    for candidate in candidates:
+        quantity = _int_or_none(candidate)
+        if quantity is not None:
+            return quantity
+    return None
 
 
 def _packaging_explanation(options: list[dict[str, str]]) -> str:
@@ -1716,6 +1823,543 @@ def _mapped_metafields(
     return result
 
 
+_VALKENPOWER_SPEC_LABELS = {
+    "capacity": "Capaciteit",
+    "lifting capacity": "Hefcapaciteit",
+    "material": "Materiaal",
+    "wheel material": "Wielmateriaal",
+    "voltage": "Spanning",
+    "power": "Vermogen",
+    "motor power": "Motorvermogen",
+    "oil capacity": "Oliecapaciteit",
+    "tank capacity": "Tankinhoud",
+    "working pressure": "Werkdruk",
+    "max. pressure": "Max. druk",
+    "pressure gauge": "Manometer",
+    "handle length": "Handgreeplengte",
+    "platform length": "Platformlengte",
+    "platform width": "Platformbreedte",
+    "ramp length": "Oprijlengte",
+    "min. height": "Min. hoogte",
+    "max. height": "Max. hoogte",
+    "height": "Hoogte",
+    "width": "Breedte",
+    "length": "Lengte",
+    "weight": "Gewicht",
+    "reach front": "Bereik voor",
+    "reach rear": "Bereik achter",
+    "opening front wheel clamp max.": "Max. opening voorwielklem",
+    "front wheel diameter": "Diameter voorwiel",
+    "rear wheel diameter": "Diameter achterwiel",
+    "wall thickness": "Wanddikte",
+    "fittings": "Aansluitingen",
+    "oil type": "Olietype",
+}
+
+_VALKENPOWER_SPEC_VALUES = {
+    "steel": "Staal",
+    "rubber": "Rubber",
+    "plastic": "Kunststof",
+    "aluminium": "Aluminium",
+    "cast iron": "Gietijzer",
+    "yes": "Ja",
+    "no": "Nee",
+}
+
+
+def _vp_number(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip().lower()
+    text = re.sub(r"[^0-9,.-]", "", text).replace(",", ".")
+    if not text:
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    return number if number > 0 else None
+
+
+def _vp_format_number(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text.replace(".", ",")
+
+
+def _vp_dimension(raw: dict[str, Any], key: str) -> str | None:
+    value = _vp_number(raw.get(key))
+    if value is None:
+        return None
+    return f"{_vp_format_number(value)} mm"
+
+
+def _vp_weight(raw: dict[str, Any], key: str) -> str | None:
+    value = _vp_number(raw.get(key))
+    if value is None:
+        return None
+    return f"{_vp_format_number(value)} kg"
+
+
+def _vp_dimensions(raw: dict[str, Any], prefix: str) -> str | None:
+    length = _vp_dimension(raw, f"{prefix}Length")
+    width = _vp_dimension(raw, f"{prefix}Width")
+    height = _vp_dimension(raw, f"{prefix}Height")
+    if not all([length, width, height]):
+        return None
+    return f"{length} x {width} x {height}"
+
+
+def _vp_clean_spec_label(label: str) -> str:
+    normalized = re.sub(r"\s+", " ", str(label or "").strip())
+    translated = _VALKENPOWER_SPEC_LABELS.get(normalized.casefold())
+    if translated:
+        return translated
+    return normalized[:1].upper() + normalized[1:]
+
+
+def _vp_clean_spec_value(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    translated = _VALKENPOWER_SPEC_VALUES.get(text.casefold())
+    if translated:
+        return translated
+    text = re.sub(r"\bto\b", "tot", text, flags=re.IGNORECASE)
+    return text
+
+
+def _vp_spec_entries(raw: dict[str, Any]) -> list[dict[str, str]]:
+    source = raw.get("Attributes")
+    if source in (None, ""):
+        return []
+    entries: list[dict[str, str]] = []
+    if isinstance(source, str):
+        for line in source.splitlines():
+            line = re.sub(r"^[^\wÀ-ÿ]+", "", line).strip()
+            if ":" not in line:
+                continue
+            label, value = line.split(":", 1)
+            label = _vp_clean_spec_label(label)
+            value = _vp_clean_spec_value(value)
+            if label and value:
+                entries.append({"label": label, "value": value})
+    elif isinstance(source, list):
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            normalized = {
+                str(key).casefold(): nested
+                for key, nested in item.items()
+            }
+            label = normalized.get("name") or normalized.get("label")
+            value = normalized.get("values") or normalized.get("value")
+            if isinstance(value, list):
+                value = ", ".join(str(part) for part in value if part)
+            label = _vp_clean_spec_label(str(label or ""))
+            value = _vp_clean_spec_value(str(value or ""))
+            if label and value:
+                entries.append({"label": label, "value": value})
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        identity = (entry["label"].casefold(), entry["value"].casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduped.append(entry)
+    return deduped
+
+def _vp_spec_entries_from_html_description(description_html: Any) -> list[dict[str, str]]:
+    source = str(description_html or "")
+    heading = re.search(
+        r"Technische\s+specificaties\s*:?\s*(?:</[^>]+>)?",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if not heading:
+        return []
+    list_match = re.search(r"<ul[^>]*>([\s\S]*?)</ul>", source[heading.end():], flags=re.IGNORECASE)
+    if not list_match:
+        return []
+
+    entries: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item_match in re.finditer(r"<li[^>]*>([\s\S]*?)</li>", list_match.group(1), flags=re.IGNORECASE):
+        raw_text = html.unescape(
+            re.sub(r"<[^>]+>", " ", item_match.group(1))
+            .replace("\xa0", " ")
+        )
+        raw_text = re.sub(r"\s+", " ", raw_text).strip()
+        pair = re.match(r"^(.{2,80}?)\s*(?:[:：=]|\s+-\s+)\s*(.+)$", raw_text)
+        if not pair:
+            continue
+        label = _vp_clean_spec_label(pair.group(1))
+        value = _vp_clean_spec_value(pair.group(2))
+        if not label or not value:
+            continue
+        if label.casefold() in {"technische specificaties", "specificaties"}:
+            continue
+        identity = (label.casefold(), value.casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        entries.append({"label": label, "value": value})
+    return entries
+
+
+def _vp_specs_match_product_context(product: dict[str, Any], entries: list[dict[str, str]]) -> bool:
+    if not entries:
+        return True
+    labels_and_values = " ".join(
+        f"{entry.get('label', '')} {entry.get('value', '')}"
+        for entry in entries
+    ).casefold()
+    has_electrical_machine_specs = any(
+        token in labels_and_values
+        for token in (
+            "voltage",
+            "spanning",
+            "input power",
+            "no load voltage",
+            "unloaded voltage",
+            "welding current",
+            "duty cycle",
+            "circuit breaker",
+            "air consumption",
+            "isolation class",
+        )
+    )
+    if not has_electrical_machine_specs:
+        return True
+    context = " ".join(
+        str(product.get(key) or "")
+        for key in ("sku", "title", "name", "handle", "html_description", "source_description")
+    ).casefold()
+    return any(
+        token in context
+        for token in (
+            "las",
+            "lassen",
+            "lasser",
+            "lasapparaat",
+            "plasma",
+            "plasmasnijder",
+            "snijder",
+            "compressor",
+            "generator",
+            "aggregaat",
+            "motor",
+            "pomp",
+            "heater",
+            "kachel",
+            "booster",
+            "acculader",
+            "lader",
+            "machine",
+            "apparaat",
+        )
+    )
+
+
+def _valkenpower_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    if str(product.get("_supplier_slug") or "").casefold() != "valkenpower":
+        return []
+    raw = product.get("_raw_data") or {}
+    try:
+        original_raw = json.loads(product.get("raw_data_json") or "{}")
+    except (TypeError, json.JSONDecodeError):
+        original_raw = {}
+    result: list[dict[str, str]] = []
+
+    product_dimensions = _vp_dimensions(raw, "Prod")
+    if product_dimensions:
+        result.append({
+            "namespace": "pim",
+            "key": "afmetingen",
+            "type": "single_line_text_field",
+            "value": product_dimensions,
+        })
+    product_weight = _vp_weight(raw, "ProdWeight")
+    if product_weight:
+        result.append({
+            "namespace": "pim",
+            "key": "gewicht",
+            "type": "single_line_text_field",
+            "value": product_weight,
+        })
+
+    packaging_rows: list[str] = []
+    packaging_dimensions = _vp_dimensions(raw, "Pack")
+    if packaging_dimensions:
+        packaging_rows.append(f"Verpakkingsafmetingen: {packaging_dimensions}")
+    packaging_weight = _vp_weight(raw, "PackWeight")
+    if packaging_weight:
+        packaging_rows.append(f"Verpakkingsgewicht: {packaging_weight}")
+    if packaging_rows:
+        result.append({
+            "namespace": "pim",
+            "key": "verpakking",
+            "type": "multi_line_text_field",
+            "value": "|".join(packaging_rows),
+        })
+
+    spec_entries = (
+        _vp_spec_entries(raw)
+        or _vp_spec_entries(original_raw)
+        or _vp_spec_entries_from_html_description(product.get("html_description"))
+    )
+    if not _vp_specs_match_product_context(product, spec_entries):
+        spec_entries = []
+    if spec_entries:
+        result.append({
+            "namespace": "pim",
+            "key": "specificaties",
+            "type": "multi_line_text_field",
+            "value": "|".join(
+                f"{entry['label']}: {entry['value']}"
+                for entry in spec_entries
+            ),
+        })
+        result.append({
+            "namespace": "pim",
+            "key": "specs_json",
+            "type": "json",
+            "value": json.dumps(
+                spec_entries, ensure_ascii=False, separators=(",", ":")
+            ),
+        })
+
+    return result
+
+
+def _vynckier_clean_text(value: Any) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    if value.casefold() in {"[]", "{}", "null", "none", "nog niet beschikbaar"}:
+        return ""
+    return value
+
+
+def _vynckier_json_list(value: Any) -> str:
+    if value in (None, ""):
+        return "[]"
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return "[]"
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return "[]"
+        if isinstance(parsed, list):
+            return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+    return "[]"
+
+
+def _vynckier_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    if str(product.get("_supplier_slug") or "").casefold() != "vynckier":
+        return []
+    raw = product.get("_raw_data") or {}
+    if not raw:
+        try:
+            raw = json.loads(product.get("raw_data_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw = {}
+
+    field_defs: list[tuple[str, str, str]] = [
+        ("specificaties", "multi_line_text_field", "specificaties"),
+        ("specs_json", "json", "specs_json"),
+        ("afmetingen", "single_line_text_field", "afmetingen"),
+        ("gewicht", "single_line_text_field", "gewicht"),
+        ("leverancier_omschrijving", "multi_line_text_field", "leverancier_omschrijving"),
+        ("kenmerken", "multi_line_text_field", "kenmerken"),
+        ("voordelen", "multi_line_text_field", "voordelen"),
+        ("toepassingen", "multi_line_text_field", "toepassingen"),
+        ("capaciteit", "single_line_text_field", "capaciteit"),
+        ("geleverd_met", "multi_line_text_field", "geleverd_met"),
+        ("bijgeleverde_accessoires", "multi_line_text_field", "bijgeleverde_accessoires"),
+        ("opties", "multi_line_text_field", "opties"),
+        ("veiligheidsopmerking", "multi_line_text_field", "veiligheidsopmerking"),
+        ("handleidingen", "multi_line_text_field", "handleidingen"),
+        ("documenten", "multi_line_text_field", "documenten"),
+        ("document_links", "json", "document_links"),
+        ("document_source_links", "json", "document_source_links"),
+        ("vergelijkingsproducten_json", "json", "vergelijkingsproducten_json"),
+    ]
+
+    result: list[dict[str, str]] = []
+    for key, field_type, source_key in field_defs:
+        if field_type == "json":
+            value = _vynckier_json_list(raw.get(source_key))
+            if value == "[]":
+                continue
+        else:
+            value = _vynckier_clean_text(raw.get(source_key))
+            if not value:
+                continue
+        result.append({
+            "namespace": "pim",
+            "key": key,
+            "type": field_type,
+            "value": value,
+        })
+    return result
+
+
+_WELDAS_SPEC_LABELS = {
+    "productfamilie",
+    "materiaal en uitvoering",
+    "norm",
+    "testcertificaat",
+    "testrapport",
+    "certificaat",
+    "beschikbare maten",
+    "en 388",
+    "en 407",
+    "en 11611",
+    "uitvoering",
+    "kevlar®",
+    "kevlar",
+    "land van oorsprong",
+}
+
+_WELDAS_PACKAGING_LABELS = {
+    "aantal per verpakking",
+    "brutogewicht verpakking kg",
+    "nettogewicht verpakking kg",
+    "lengte verpakking mm",
+    "breedte verpakking mm",
+    "hoogte verpakking mm",
+    "aantal per doos",
+    "brutogewicht doos kg",
+    "nettogewicht doos kg",
+    "lengte doos cm",
+    "breedte doos cm",
+    "hoogte doos cm",
+}
+
+
+def _weldas_source_html(product: dict[str, Any]) -> str:
+    for key in ("html_description", "source_description"):
+        value = str(product.get(key) or "").strip()
+        if value:
+            return value
+    raw = product.get("_raw_data") or {}
+    if not raw:
+        try:
+            raw = json.loads(product.get("raw_data_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw = {}
+    invoice_catalog = raw.get("invoice_catalog") or {}
+    shopify = invoice_catalog.get("shopify") or {}
+    raw_product = shopify.get("product") or {}
+    return str(raw_product.get("description_html") or "").strip()
+
+
+def _weldas_text_lines(value: str) -> list[str]:
+    text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", value or "")
+    text = re.sub(r"(?i)</\s*(p|div|li|tr|td|th|h[1-6])\s*>", "\n", text)
+    text = re.sub(r"<[^>]+>", "\n", text)
+    lines: list[str] = []
+    for line in html.unescape(text).splitlines():
+        cleaned = re.sub(r"\s+", " ", line).strip(" \t\r\n:-")
+        if cleaned:
+            lines.append(cleaned)
+    return lines
+
+
+def _weldas_label_key(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold().rstrip(":")
+
+
+def _weldas_section(
+    lines: list[str], starts: set[str], stops: set[str]
+) -> list[str]:
+    start_index: int | None = None
+    for index, line in enumerate(lines):
+        if _weldas_label_key(line) in starts:
+            start_index = index + 1
+            break
+    if start_index is None:
+        return []
+    result: list[str] = []
+    for line in lines[start_index:]:
+        key = _weldas_label_key(line)
+        if key in stops or key.startswith("selecteer "):
+            break
+        result.append(line)
+    return result
+
+
+def _weldas_pairs(section_lines: list[str], labels: set[str]) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    index = 0
+    while index < len(section_lines):
+        label = section_lines[index]
+        if "|" in label:
+            split_label, split_value = (part.strip() for part in label.split("|", 1))
+            if _weldas_label_key(split_label) in labels and split_value:
+                entries.append({
+                    "label": split_label.rstrip(":"),
+                    "value": split_value,
+                })
+                index += 1
+                continue
+        label_key = _weldas_label_key(label)
+        if label_key not in labels:
+            index += 1
+            continue
+        index += 1
+        values: list[str] = []
+        while index < len(section_lines):
+            next_key = _weldas_label_key(section_lines[index])
+            if next_key in labels:
+                break
+            values.append(section_lines[index])
+            index += 1
+        value = " | ".join(part for part in values if part).strip()
+        if value:
+            entries.append({"label": label.rstrip(":"), "value": value})
+    return entries
+
+
+def _weldas_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    if str(product.get("_supplier_slug") or "").casefold() != "weldas-europe-b-v":
+        return []
+    lines = _weldas_text_lines(_weldas_source_html(product))
+    spec_lines = _weldas_section(
+        lines,
+        {"technische specificaties", "technische gegevens"},
+        {"verpakking", "belangrijkste kenmerken", "uitvoeringen"},
+    )
+    spec_entries = _weldas_pairs(spec_lines, _WELDAS_SPEC_LABELS)
+
+    result: list[dict[str, str]] = []
+    if spec_entries:
+        spec_value = " | ".join(
+            f"{entry['label']}: {entry['value']}"
+            for entry in spec_entries
+        )
+        result.append({
+            "namespace": "pim",
+            "key": "specificaties",
+            "type": "multi_line_text_field",
+            "value": spec_value,
+        })
+        result.append({
+            "namespace": "pim",
+            "key": "specs_json",
+            "type": "json",
+            "value": json.dumps(
+                spec_entries, ensure_ascii=False, separators=(",", ":")
+            ),
+        })
+    return result
+
+
 def _eligible(product: dict[str, Any]) -> bool:
     rhodius_rule = sales_unit_rule(product)
     if rhodius_rule and rhodius_rule["warning"]:
@@ -1857,8 +2501,87 @@ def _validate_product_content_gate(
         )
 
 
+def _preserve_existing_shopify_tree(
+    product: dict[str, Any],
+    existing: dict[str, Any] | None,
+    product_input: dict[str, Any],
+    *, allow_approved_tree: bool = False,
+) -> None:
+    """Keep every supplier's Shopify tree merchant-owned during normal sync.
+
+    All metafields are omitted from productSet because its list replacement
+    semantics can delete omitted fields. Allowed fields use metafieldsSet.
+    """
+    if not existing:
+        return
+    # Tags/category/custom tree metafields are merchant-managed for ALL suppliers: normal
+    # PIM sync must never replace them, even if an older import/lock exists.
+    # Approval must be explicit for the action; commercial fields use upserts.
+    product_input.pop("tags", None)
+    product_input.pop("category", None)
+    approved_values = locked_tree_values(product) if allow_approved_tree else None
+    if approved_values is not None:
+        if any(key in approved_values for key in COLLECTION_TAG_VALUE_KEYS):
+            product_input["tags"] = locked_collection_tags(product)
+        if approved_values.get("category"):
+            product_input["category"] = str(approved_values["category"])
+    product_input.pop("metafields", None)
+    for variant in product_input.get("variants") or []:
+        variant.pop("metafields", None)
+
+
+def _collect_commercial_metafields(product_input, updates):
+    if updates is None or not product_input.get("id"):
+        return
+    owners = [(product_input["id"], product_input.get("metafields") or [])]
+    owners.extend((v.get("id"), v.get("metafields") or [])
+                  for v in product_input.get("variants") or [])
+    for owner_id, fields in owners:
+        if not owner_id:
+            continue
+        for field in fields:
+            if field.get("namespace") == "custom" and field.get("key") in COLLECTION_CUSTOM_METAFIELD_KEYS:
+                continue
+            updates.append({**field, "ownerId": owner_id})
+
+
+def _metafield_upsert_rows(updates):
+    unique = {(f["ownerId"], f.get("namespace"), f["key"]): f for f in updates}
+    values = list(unique.values())
+    return [{"metafields": values[offset:offset + 25]}
+            for offset in range(0, len(values), 25)]
+
+
+def _set_commercial_metafields(client, updates):
+    for row in _metafield_upsert_rows(updates):
+        result = client.graphql(
+            """mutation($metafields:[MetafieldsSetInput!]!){
+              metafieldsSet(metafields:$metafields){
+                metafields{id} userErrors{field message code}
+              }}""", row,
+        ).get("metafieldsSet") or {}
+        if result.get("userErrors"):
+            raise RuntimeError("Commerciële metavelden bijwerken mislukt: " + str(result["userErrors"]))
+
+
+def _commercial_metafield_rows(
+    products: list[dict[str, Any]], existing: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collect all suppliers' commercial fields, including family packaging."""
+    updates = []
+    _grouped_product_rows(products, existing, group_variants=False,
+                          metafield_updates=updates)
+    return _metafield_upsert_rows(updates)
+
+
+# Compatibility for existing VP maintenance scripts/tests; policy is global.
+_preserve_vp_shopify_fields = _preserve_existing_shopify_tree
+_vp_metafield_rows = _commercial_metafield_rows
+
+
 def _input(
-    product: dict[str, Any], existing: dict[str, Any] | None
+    product: dict[str, Any], existing: dict[str, Any] | None,
+    *, metafield_updates: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rule = sales_unit_rule(product)
     if rule and rule["warning"] and not str(product.get("sku", "")).startswith("TEST-"):
@@ -1935,20 +2658,23 @@ def _input(
     variant_metafields = list(variant_metafields_by_key.values())
     if variant_metafields:
         variant["metafields"] = variant_metafields
-    ai_tags = _effective_tags(product)
     product_vendor = str(product.get("vendor") or "").strip()
+    if _uses_new_collection_taxonomy(product):
+        outgoing_tags = _collection_tags_from_pim(product)
+    else:
+        outgoing_tags = _effective_tags(product)
+        mapped_tags = _mapped(product, "product.tags")
+        if mapped_tags:
+            outgoing_tags.extend(
+                tag.strip()
+                for tag in re.split(r"[,;|]", str(mapped_tags))
+                if tag.strip()
+            )
     if product_vendor.casefold() != "sp tools":
-        ai_tags = [
-            tag for tag in ai_tags
+        outgoing_tags = [
+            tag for tag in outgoing_tags
             if str(tag).strip().casefold() != "sp tools"
         ]
-    mapped_tags = _mapped(product, "product.tags")
-    if mapped_tags:
-        ai_tags.extend(
-            tag.strip()
-            for tag in re.split(r"[,;|]", str(mapped_tags))
-            if tag.strip()
-        )
     result: dict[str, Any] = {
         "title": title,
         "handle": (
@@ -1969,11 +2695,15 @@ def _input(
             or ""
         ),
         "status": "ACTIVE" if _eligible(product) else "DRAFT",
-        "tags": list(dict.fromkeys(filter(None, [
-            product_vendor,
-            product.get("category"), product.get("category_full"),
-            *ai_tags,
-        ])))[:250],
+        "tags": (
+            _clean_shopify_tags([product_vendor, *outgoing_tags])
+            if _uses_new_collection_taxonomy(product)
+            else list(dict.fromkeys(filter(None, [
+                product_vendor,
+                product.get("category"), product.get("category_full"),
+                *outgoing_tags,
+            ])))
+        )[:250],
         "productOptions": [{
             "name": "Title",
             "position": 1,
@@ -2001,14 +2731,17 @@ def _input(
             ("uitvoering", material),
         ]
     else:
-        pim_metafields = [
-            ("productgroep", product.get("product_group_name")),
-            ("uitvoering", product.get("execution")),
-            ("filter", " | ".join(str(value) for value in filter_values if value)),
-            ("subcategorie_3", product.get("subcategory_3")),
-            ("subcategorie_4", product.get("subcategory_4")),
-            ("subcategorie_5", product.get("subcategory_5")),
-        ]
+        if _uses_new_collection_taxonomy(product):
+            pim_metafields = []
+        else:
+            pim_metafields = [
+                ("productgroep", product.get("product_group_name")),
+                ("uitvoering", product.get("execution")),
+                ("filter", " | ".join(str(value) for value in filter_values if value)),
+                ("subcategorie_3", product.get("subcategory_3")),
+                ("subcategorie_4", product.get("subcategory_4")),
+                ("subcategorie_5", product.get("subcategory_5")),
+            ]
     base_metafields = [
         {
             "namespace": "custom",
@@ -2020,14 +2753,30 @@ def _input(
         if value not in (None, "")
     ]
     configured_product_metafields = _mapped_metafields(product, "product")
+    supplier_standard_metafields = [
+        *_valkenpower_pim_metafields(product),
+        *_vynckier_pim_metafields(product),
+        *_weldas_pim_metafields(product),
+    ]
     merged_metafields = {
         (item["namespace"], item["key"]): item
-        for item in [*base_metafields, *configured_product_metafields]
+        for item in [
+            *base_metafields,
+            *configured_product_metafields,
+            *supplier_standard_metafields,
+        ]
     }
     # Approved file imports win over derived values and configured mappings,
     # including explicitly empty levels (which must not be reintroduced).
-    approved_categories = locked_metafields(product)
+    approved_categories = (
+        _desired_collection_metafields(product)
+        if _uses_new_collection_taxonomy(product)
+        else locked_metafields(product)
+    )
     if approved_categories is not None:
+        if _uses_new_collection_taxonomy(product):
+            for key in COLLECTION_CUSTOM_METAFIELD_KEYS:
+                merged_metafields.pop(("custom", key), None)
         for key, value in approved_categories.items():
             merged_metafields.pop(("custom", key), None)
             if value:
@@ -2105,6 +2854,8 @@ def _input(
         cost=mapped_cost if mapped_cost not in (None, "") else product.get("cost_price"),
         compare_at=compare_at if compare_at not in (None, "") else None,
     )
+    _collect_commercial_metafields(result, metafield_updates)
+    _preserve_existing_shopify_tree(product, existing, result)
     return result
 
 
@@ -2113,6 +2864,7 @@ def _grouped_product_rows(
     existing: dict[str, dict[str, Any]],
     *,
     group_variants: bool,
+    metafield_updates: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     # Een eerdere gedeeltelijke bulkbewerking kan SKU's van verschillende
     # gewenste handles tijdelijk onder hetzelfde Shopify-product hebben gezet.
@@ -2174,7 +2926,7 @@ def _grouped_product_rows(
             ),
             None,
         )
-        product_input = _input(group[0], first_existing)
+        product_input = _input(group[0], first_existing, metafield_updates=metafield_updates)
         use_family_options = any(
             product.get("_family_variant_options") for product in group
         )
@@ -2196,7 +2948,7 @@ def _grouped_product_rows(
         )
         for product in group:
             match = existing.get(product["sku"].upper())
-            variant_input = _input(product, match)
+            variant_input = _input(product, match, metafield_updates=metafield_updates)
             variant = variant_input["variants"][0]
             for file_input in variant_input.get("files") or []:
                 if not any(
@@ -2309,6 +3061,8 @@ def _grouped_product_rows(
             )
         if group_files:
             product_input["files"] = group_files
+        _collect_commercial_metafields(product_input, metafield_updates)
+        _preserve_existing_shopify_tree(group[0], first_existing, product_input)
         rows.append({"input": product_input})
     return rows
 
@@ -2471,6 +3225,22 @@ def _sync_prices_only(
     }
 
 
+def _assert_supplier_tree_safe(rows, mutation):
+    """Reject unsafe automatic tree writes before any bulk upload starts."""
+    for row in rows:
+        product_input = row.get("input") or {}
+        if "productSet" in mutation and product_input.get("id"):
+            if any(key in product_input for key in ("tags", "category", "metafields")):
+                raise ValueError("Leverancierssync mag de Shopify-boomlaag niet vervangen")
+            if any("metafields" in variant for variant in product_input.get("variants") or []):
+                raise ValueError("Bestaande variantmetavelden moeten apart met metafieldsSet worden bijgewerkt")
+        if "metafieldsSet" in mutation or "metafieldsDelete" in mutation:
+            if any(field.get("namespace") == "custom"
+                   and field.get("key") in COLLECTION_CUSTOM_METAFIELD_KEYS
+                   for field in row.get("metafields") or []):
+                raise ValueError("Leverancierssync mag custom-boomvelden niet schrijven of wissen")
+
+
 def _run_rows(
     client: ShopifyClient,
     rows: list[dict[str, Any]],
@@ -2482,6 +3252,7 @@ def _run_rows(
     end_percent: int,
     label: str,
 ) -> None:
+    _assert_supplier_tree_safe(rows, mutation)
     if not rows:
         _progress(callback, end_percent, f"{label}: niets te wijzigen")
         return
@@ -2952,8 +3723,10 @@ def sync_all_products(
         )
     _precache_visual_image_hashes(image_urls, progress_callback)
     group_variants = "upload" in supplier.get("source_type", "")
+    commercial_metafield_updates = []
     rows = _grouped_product_rows(
-        sync_source, existing, group_variants=group_variants
+        sync_source, existing, group_variants=group_variants,
+        metafield_updates=commercial_metafield_updates,
     )
     desired_status = supplier.get("sync_product_status") or "active"
     publish_all = bool(supplier.get("sync_publish_all", 1))
@@ -3011,6 +3784,17 @@ def sync_all_products(
         58,
         "Producten naar Shopify",
     )
+    _run_rows(
+        client, _metafield_upsert_rows(commercial_metafield_updates),
+        """mutation call($metafields:[MetafieldsSetInput!]!){
+          metafieldsSet(metafields:$metafields){
+            metafields{id} userErrors{field message code}
+          }}""",
+        f"{slug}-commercial-metafields.jsonl",
+        f"pim-{slug}-commercial-metafields-{uuid.uuid4().hex[:8]}",
+        progress_callback, 57, 58,
+        "Specificaties en commerciële metavelden bijwerken",
+    )
     refreshed = _shopify_products(client, vendor, slug)
     missing = [
         product["sku"] for product in sync_source
@@ -3056,7 +3840,8 @@ def sync_all_products(
             product, str(live_product.get("descriptionHtml") or "")
         ):
             live_errors.append(f"{product['sku']}: Shopify-tekst ontbreekt")
-        if not _tags_meet_quality(product, live_product.get("tags") or []):
+        merchant_managed_tags = live_product["id"] in existing_status_by_product_id
+        if not merchant_managed_tags and not _tags_meet_quality(product, live_product.get("tags") or []):
             live_errors.append(f"{product['sku']}: Shopify-tags ontbreken")
         expected_status = _staged_product_status(
             str(live_product.get("id") or ""),
@@ -3081,6 +3866,7 @@ def sync_all_products(
         for product in sync_source
     }
     location_cleanup_rows = []
+    blocked_location_cleanup_candidates = []
     for product_id, shopify_product in products_by_id.items():
         source_product = source_by_product_id.get(product_id)
         if not source_product:
@@ -3100,30 +3886,22 @@ def sync_all_products(
                 (shopify_product.get("metafields") or {}).get("nodes") or []
             )
         }
-        # Herstel uitsluitend waarden die aantoonbaar door de eerdere foutieve
-        # PIM-koppeling zijn geschreven. Echte magazijnlocaties blijven staan.
+        # Veiligheidsregel 2026-09-25: custom.locatie is magazijnlocatie-data
+        # en mag niet meer automatisch door supplier-sync worden verwijderd.
+        # Oude foutieve filterwaarden worden alleen gerapporteerd; expliciet
+        # handmatig herstel moet via een aparte, gecontroleerde beheeractie.
         if (
             expected_filter_value
             and current_metafields.get("locatie") == expected_filter_value
         ):
-            location_cleanup_rows.append({
-                "metafields": [{
-                    "ownerId": product_id,
-                    "namespace": "custom",
-                    "key": "locatie",
-                }]
+            blocked_location_cleanup_candidates.append({
+                "product_id": product_id,
+                "sku": source_product.get("sku"),
+                "value": current_metafields.get("locatie"),
+                "reason": "automatic_custom_locatie_delete_disabled",
             })
-        if (
-            supplier_route(slug).uses_certilas_filters
-            and current_metafields.get("filter") is not None
-        ):
-            location_cleanup_rows.append({
-                "metafields": [{
-                    "ownerId": product_id,
-                    "namespace": "custom",
-                    "key": "filter",
-                }]
-            })
+        # No supplier may delete custom tree fields (including Certilas filter)
+        # because PIM values are missing, derived, or from an older lock/import.
     _run_rows(
         client,
         location_cleanup_rows,
@@ -3595,7 +4373,10 @@ def sync_all_products(
             incomplete_media_product_ids
         ),
         "media_blocked_draft_count": len(media_blocked_product_ids),
-        "repaired_location_metafields": len(location_cleanup_rows),
+        "repaired_location_metafields": 0,
+        "blocked_location_cleanup_candidates": len(blocked_location_cleanup_candidates),
+        "blocked_location_cleanup_sample": blocked_location_cleanup_candidates[:25],
+        "deleted_filter_metafields": len(location_cleanup_rows),
         "publications": len(publications),
         "product_status_setting": desired_status,
         "publish_all_channels": publish_all,
@@ -3854,7 +4635,8 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
         }
         if existing_variant else None
     )
-    product_input = _input(source, existing)
+    commercial_updates = []
+    product_input = _input(source, existing, metafield_updates=commercial_updates)
     if is_variant:
         variant_input = product_input["variants"][0]
         variant_input.pop("optionValues", None)
@@ -3883,6 +4665,7 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
         variants = payload.get("productVariants") or []
         if not variants:
             raise RuntimeError("Shopify gaf geen bijgewerkte variant terug.")
+        _set_commercial_metafields(client, commercial_updates)
         product = existing_variant["product"]
         numeric_id = str(product["id"]).rsplit("/", 1)[-1]
         with sqlite3.connect(supplier_database_path(slug)) as connection:
@@ -3907,7 +4690,8 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
     source["html_description"] = _description_with_documents(
         str(source.get("html_description") or ""), uploaded_documents
     )
-    product_input = _input(source, existing)
+    commercial_updates = []
+    product_input = _input(source, existing, metafield_updates=commercial_updates)
     product_input["status"] = "DRAFT"
     data = client.graphql(
         """mutation SavePimDraft($input:ProductSetInput!){
@@ -3927,6 +4711,7 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
     product = payload.get("product") or {}
     if not product.get("id"):
         raise RuntimeError("Shopify gaf geen product-ID terug.")
+    _set_commercial_metafields(client, commercial_updates)
     numeric_id = str(product["id"]).rsplit("/", 1)[-1]
     with sqlite3.connect(supplier_database_path(slug)) as connection:
         connection.execute(

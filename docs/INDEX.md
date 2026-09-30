@@ -1,5 +1,11 @@
 # Documentatie Index
 
+- [Shopify-boomlaag behouden](SHOPIFY_TREE_PROTECTION.md): bescherming voor alle leveranciers tijdens normale synchronisatie.
+- [VP Shopify-velden](VP_SHOPIFY_FIELD_OWNERSHIP.md): veldbeheer, voorraadbron en expliciete boomimport.
+
+- [Voorraad behouden bij synchronisatie](PRESERVE_INVENTORY.md): bestaande Shopify-voorraadbron onder tab 4.
+
+
 Deze index is de centrale ingang voor alle documentatie van Weldingshop PIM.
 
 Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leverancierneutrale melding; zie ook de Ultimatron-documentatie.

@@ -99,7 +99,7 @@ def test_single_save_detects_variant_before_documents(monkeypatch, tmp_path):
     }])
     monkeypatch.setattr(sync.ShopifyClient, "from_settings", lambda: Client())
     monkeypatch.setattr(sync, "supplier_database_path", lambda slug: database)
-    monkeypatch.setattr(sync, "_input", lambda source, existing: {
+    monkeypatch.setattr(sync, "_input", lambda source, existing, **kwargs: {
         "variants": [{
             "id": existing["variant"]["id"],
             "optionValues": [{"optionName": "Maat", "name": "1"}],

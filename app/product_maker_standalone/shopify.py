@@ -17,6 +17,23 @@ from app.ai.providers.openai_provider import OpenAIProvider
 from .service import ProductMakerService, utc_now
 
 
+def _protect_existing_tree(sku: str, existing_target, product_input):
+    """Every existing supplier product keeps its merchant-owned Shopify tree."""
+    if not existing_target:
+        return []
+    from app.shopify.sync import COLLECTION_CUSTOM_METAFIELD_KEYS, _preserve_existing_shopify_tree
+    allowed = [
+        field for field in product_input.get("metafields") or []
+        if not (field.get("namespace") == "custom"
+                and field.get("key") in COLLECTION_CUSTOM_METAFIELD_KEYS)
+    ]
+    _preserve_existing_shopify_tree({}, existing_target, product_input)
+    return allowed
+
+
+_protect_existing_vp_tree = _protect_existing_tree
+
+
 def _shopify_image_source(client: ShopifyClient, value: str) -> str:
     """Upload a local productmaker image to Shopify's staged storage."""
     path = Path(value)
@@ -252,6 +269,7 @@ def publish(
         ]
     else:
         product_input["id"] = str((existing_target.get("product") or {})["id"])
+    commercial_metafields = _protect_existing_tree(draft["sku"], existing_target, product_input)
     with service.connect() as db:
         db.execute("UPDATE pm_drafts SET status='publishing',updated_at=? WHERE id=?",
                    (utc_now(), int(draft_id)))
@@ -272,6 +290,17 @@ def publish(
         )
         if not product.get("id") or not target:
             raise RuntimeError("Shopify gaf het aangemaakte product niet volledig terug")
+        for offset in range(0, len(commercial_metafields), 25):
+            result = client.graphql(
+                """mutation($metafields:[MetafieldsSetInput!]!){
+                  metafieldsSet(metafields:$metafields){
+                    metafields{id} userErrors{field message code}
+                  }}""",
+                {"metafields": [{**field, "ownerId": product["id"]}
+                               for field in commercial_metafields[offset:offset + 25]]},
+            ).get("metafieldsSet") or {}
+            if result.get("userErrors"):
+                raise RuntimeError("Metavelden bijwerken mislukt: " + str(result["userErrors"]))
         if updating_existing:
             inventory_item_id = str(
                 (existing_target.get("inventoryItem") or {}).get("id") or ""

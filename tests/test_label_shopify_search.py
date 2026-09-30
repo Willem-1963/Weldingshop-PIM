@@ -1,3 +1,5 @@
+import pytest
+
 from app.web import label_page
 
 
@@ -78,7 +80,7 @@ def test_empty_initial_location_does_not_disable_form_submit():
     assert "disabled=" not in submit
 
 
-def test_empty_location_deletes_product_metafield(monkeypatch):
+def test_empty_location_preserves_product_metafield(monkeypatch):
     calls = []
 
     class Client:
@@ -92,16 +94,14 @@ def test_empty_location_deletes_product_metafield(monkeypatch):
                 return {"productVariants": {"nodes": [{
                     "sku": "TEST-1", "product": {"id": "gid://shopify/Product/1"},
                 }]}}
-            return {"metafieldsDelete": {"deletedMetafields": [{
-                "ownerId": "gid://shopify/Product/1", "namespace": "custom", "key": "locatie",
-            }], "userErrors": []}}
+            raise AssertionError("Een lege locatie mag geen Shopify-mutatie uitvoeren")
 
     monkeypatch.setattr(label_page, "ShopifyClient", Client)
 
-    assert label_page.save_shopify_location_for_sku("TEST-1", "   ") == ""
-    assert "metafieldsDelete" in calls[1][0]
-    assert "userErrors{field message code}" not in calls[1][0]
-    assert calls[1][1]["metafields"][0]["key"] == "locatie"
+    with pytest.raises(ValueError, match="Locatiecode is leeg"):
+        label_page.save_shopify_location_for_sku("TEST-1", "   ")
+    assert len(calls) == 1
+    assert "LabelLocationOwner" in calls[0][0]
 
 
 def test_generated_ean13_has_valid_check_digit_and_is_unique(monkeypatch):

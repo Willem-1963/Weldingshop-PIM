@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 2026-09-30
+
+- Normale synchronisatie behoudt tags, categorie en custom-boomvelden op bestaande Shopify-producten voor alle leveranciers. Commerciële velden blijven bijwerkbaar; metavelden worden afzonderlijk bijgewerkt zonder bestaande lijsten te vervangen.
+- VP-boomimport vereist expliciete goedkeuring; aanvullende-productensync voor VP wordt overgeslagen. Bescherming en regressietests vastgelegd.
+- Lege locatiecodes wissen geen Shopify-locatie meer; locatiebewerkingen krijgen een auditlog. Verouderde verwijdertest aangepast aan deze bescherming.
+- Bestaande lokale verbeteringen aan leveranciersgegevens, voorraad, omschrijvingen, metaveldefinities en beheerscripts opgenomen in Git.
+
+## 2026-09-20
+
+- Het nieuwe vinkje ‘Voorraad niet wijzigen bij synchronisatie’ op verzoek verwijderd. De bestaande voorraadbron ‘Voorraad uit Shopify gebruiken’ blijft beschikbaar en overschrijft de Shopify-voorraad niet.
+
+
 ## 2026-09-18
 
 - Rhodius: stukbarcode en verpakkingsbarcode krijgen afzonderlijke scaneenheden, gekoppeld via native Shopify-voorraadrelaties. Negen bronartikelen leveren 17 testconcepten. Verpakkingsprijs uit het PIM blijft behouden bij de koppeling. Beide GTIN’s zijn zoekbaar en zichtbaar in het PIM; websitekeuze staat nog open. Vier verpakkings-GTIN’s ontbreken. 45 regressietests slagen.

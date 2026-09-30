@@ -224,5 +224,9 @@ if __name__ == "__main__":
     parser.add_argument("--delay", type=float, default=2.0)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--sku")
+    parser.add_argument("--approve-tree-import", action="store_true",
+                        help="Explicit approval to change VP category fields in PIM")
     args = parser.parse_args()
+    if not getattr(args, "approve_tree_import", False):
+        parser.error('Automatic VP tree backfill is disabled; explicit --approve-tree-import is required')
     asyncio.run(main(args.delay, args.limit, args.sku))

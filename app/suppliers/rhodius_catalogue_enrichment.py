@@ -267,6 +267,31 @@ def _render_html(group: dict[str, Any]) -> str:
     return "".join(parts)
 
 
+def _render_product_html(group: dict[str, Any], product: dict[str, Any]) -> str:
+    """Combine series information with this variant's verified price-list data."""
+    raw = product.get("raw_data") or {}
+    parts = [_render_html(group)]
+    escape = lambda value: html.escape(str(value))
+    if not str(group.get("description") or "").strip():
+        name = raw.get("Productnaam") or product.get("source_title") or ""
+        kind = raw.get("Productsoort") or ""
+        if name and kind:
+            parts.append(f"<p>De RHODIUS {escape(name)} is een {escape(str(kind).lower())}. "
+                         "Hieronder staan de gegevens van deze uitvoering.</p>")
+    facts = [("Artikelnummer", product.get("sku")),
+             ("Productsoort", raw.get("Productsoort")),
+             ("Afmetingen", raw.get("Afmetingen")),
+             ("Korrel / draaddiameter", raw.get("Korrel / Draad Ø")),
+             ("Vorm", raw.get("Vorm")),
+             ("GTIN artikel", raw.get("gtin_piece") or raw.get("GTIN-code"))]
+    values = [(key, value) for key, value in facts if value not in (None, "")]
+    if values:
+        parts.append("<h3>Specificaties van deze uitvoering</h3><dl>" + "".join(
+            f"<dt>{escape(key)}</dt><dd>{escape(value)}</dd>" for key, value in values
+        ) + "</dl>")
+    return "".join(parts)
+
+
 def enrich_page(
     page_number: int, page_text: str, provider: OpenAIProvider | None = None,
 ) -> int:
@@ -315,7 +340,7 @@ def enrich_page(
                 "properties": group.get("properties") or {},
                 "updated_at": utc_now(),
             }
-            generated_html = _render_html(group)
+            generated_html = _render_product_html(group, product)
             connection.execute(
                 """UPDATE products SET raw_data_json=?,
                    html_description=CASE

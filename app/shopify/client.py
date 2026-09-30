@@ -491,20 +491,40 @@ def preview_supplier_matches(slug: str, limit: int = 25) -> list[dict[str, Any]]
 def get_metafield_definitions(owner_type: str) -> list[dict[str, Any]]:
     if owner_type not in {"PRODUCT", "PRODUCTVARIANT"}:
         raise ValueError("Ongeldig Shopify-metaveldeigenaarstype.")
-    data = ShopifyClient.from_settings().graphql(
-        """
-        query PimMetafieldDefinitions($ownerType:MetafieldOwnerType!){
-          metafieldDefinitions(first:250,ownerType:$ownerType){
-            nodes{
-              id name namespace key description
-              type{name}
+    client = ShopifyClient.from_settings()
+    definitions: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        data = client.graphql(
+            """
+            query PimMetafieldDefinitions(
+              $ownerType:MetafieldOwnerType!,
+              $after:String
+            ){
+              metafieldDefinitions(
+                first:250,
+                ownerType:$ownerType,
+                after:$after
+              ){
+                nodes{
+                  id name namespace key description
+                  type{name}
+                }
+                pageInfo{hasNextPage endCursor}
+              }
             }
-          }
-        }
-        """,
-        {"ownerType": owner_type},
-    )
-    return (data.get("metafieldDefinitions") or {}).get("nodes") or []
+            """,
+            {"ownerType": owner_type, "after": cursor},
+        )
+        connection = data.get("metafieldDefinitions") or {}
+        definitions.extend(connection.get("nodes") or [])
+        page_info = connection.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+        if not cursor:
+            break
+    return definitions
 
 
 def get_shopify_writable_fields() -> list[dict[str, str]]:
