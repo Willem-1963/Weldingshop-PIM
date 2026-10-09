@@ -11,10 +11,41 @@ def load_order_units(connection: sqlite3.Connection) -> dict[str, dict]:
     if not connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='certilas_order_units'"
     ).fetchone():
-        return {}
-    return {sku: json.loads(data) for sku, data in connection.execute(
+        return with_pack_overrides({}, load_pack_overrides(connection))
+    units = {sku: json.loads(data) for sku, data in connection.execute(
         "SELECT sku,rule_json FROM certilas_order_units"
     )}
+    return with_pack_overrides(units, load_pack_overrides(connection))
+
+
+def load_pack_overrides(connection: sqlite3.Connection) -> dict[str, dict]:
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='certilas_pack_overrides'"
+    ).fetchone():
+        return {}
+    return {sku: json.loads(data) for sku, data in connection.execute(
+        "SELECT sku,rule_json FROM certilas_pack_overrides"
+    )}
+
+
+def with_pack_overrides(units: dict[str, dict], overrides: dict[str, dict]) -> dict[str, dict]:
+    result = dict(units)
+    for sku, override in overrides.items():
+        weight = float(override['kg_per_pack'])
+        if not math.isfinite(weight) or weight <= 0:
+            raise ValueError(f'Certilas {sku}: ongeldig gewicht winkelverpakking.')
+        portal = units.get(sku) or {}
+        if portal and str(portal.get('ean')) != str(override['ean']):
+            raise ValueError(f'Certilas {sku}: winkeluitzondering heeft afwijkend EAN.')
+        result[sku] = {
+            **portal, 'sku': sku, 'ean': override['ean'],
+            'minimum_quantity': 1, 'quantity_step': 1,
+            'kg_per_order_unit': weight, 'minimum_order_kg': weight,
+            'local_pack_override': True, 'override_reason': override['reason'],
+            'override_updated_at': override['updated_at'],
+            'portal_minimum_order_kg': portal.get('minimum_order_kg'),
+        }
+    return result
 
 
 def verified_order_unit(product: dict[str, Any]) -> dict | None:
@@ -53,6 +84,9 @@ def order_notice(product: dict[str, Any]) -> str | None:
     if rule is None:
         return None
     weight = f"{float(rule['minimum_order_kg']):g}".replace('.', ',')
+    if rule.get('local_pack_override'):
+        return (f"Verkoopeenheid: één pak van {weight} kg. "
+                f"De getoonde prijs geldt per pak. Aantal 1 = één pak van {weight} kg.")
     return (f"Minimale bestelhoeveelheid: {weight} kg. "
             f"De getoonde prijs geldt voor {weight} kg. Aantal 1 = {weight} kg.")
 

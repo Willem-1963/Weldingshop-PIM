@@ -43,6 +43,12 @@ de commerciële Shopify-opbouw van Certilas-producten.
   verpakkingsgewicht van 2 kg in de bron.
 - Artikelen zonder gecontroleerde portalregel of met een afwijkend EAN
   worden niet automatisch naar een veronderstelde minimumhoeveelheid omgezet.
+- Expliciete winkeluitzonderingen in `certilas_pack_overrides` gaan vóór de
+  portalminimumafname. Deze leggen per SKU en EAN het pakgewicht, de reden en
+  bevestigingsdatum vast. Excel- en portalimports overschrijven ze niet.
+  E Corten 10382 (2,5 mm, 2 kg) en 10383 (3,2 mm, 2,6 kg) worden per pak
+  verkocht. De variantmelding, prijs, kostprijs en het gewicht volgen dat pak.
+  De oorspronkelijke leverancierminimumafname blijft apart bewaard.
 - `scripts/collect_certilas_order_units.py` verzamelt gegevens zonder
   winkelwagenwijzigingen. `scripts/apply_certilas_order_units.py` maakt
   standaard een plan; `--apply` schrijft het gecontroleerde resultaat en

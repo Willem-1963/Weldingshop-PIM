@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime,timezone
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app.suppliers.hub import supplier_database_path
-from app.suppliers.certilas_order_units import load_order_units,verified_order_unit
+from app.suppliers.certilas_order_units import load_order_units,verified_order_unit,load_pack_overrides,with_pack_overrides
 from app.shopify.sync import _price_only_variant_rows,_certilas_bundle_metafields
 from app.shopify.client import ShopifyClient
 
@@ -40,7 +40,7 @@ def store_rules(path,units):
              (sku,json.dumps(rule,ensure_ascii=False)))
 
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--apply',action='store_true');ap.add_argument('--allow-partial',action='store_true');args=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument('--apply',action='store_true');ap.add_argument('--allow-partial',action='store_true');ap.add_argument('--sku',action='append');args=ap.parse_args()
  units=json.loads((AUDIT/'certilas-order-units-20261009.json').read_text())['units']
  for name in ['certilas-order-unit-fallbacks-20261009.json','certilas-order-unit-final-20261009.json']:
   fallback=AUDIT/name
@@ -55,10 +55,13 @@ def main():
  with sqlite3.connect(path) as c:
   c.row_factory=sqlite3.Row
   pim={r['sku']:dict(r) for r in c.execute('SELECT * FROM products WHERE source_present=1')}
+  portal_units=dict(units)
+  units=with_pack_overrides(units,load_pack_overrides(c))
  matches={};source=[];missing=[];changes=[];fields=[];deletions=[]
  for prod in products:
   for v in prod['variants']['nodes']:
    sku=v['sku'];p=pim.get(sku);rule=units.get(sku)
+   if args.sku and sku not in args.sku:continue
    if not p or not rule:
     missing.append({'sku':sku,'title':prod['title'],'reason':'Geen gecontroleerde portalregel' if p else 'Niet in actieve PIM-bron'})
     continue
@@ -93,7 +96,7 @@ def main():
  if missing and not args.allow_partial:raise ValueError('Niet alle sitevarianten zijn gecontroleerd; plan is opgeslagen.')
  # Back up SQLite before persisting independently of incoming price lists.
  with sqlite3.connect(path) as c,sqlite3.connect(run/'pim-before.sqlite') as backup:c.backup(backup)
- store_rules(path,units)
+ store_rules(path,portal_units)
  definitions=client.graphql('query {metafieldDefinitions(first:250,ownerType:PRODUCTVARIANT){nodes{namespace key type{name}}}}')['metafieldDefinitions']['nodes']
  known={d['key']:d['type']['name'] for d in definitions if d['namespace']=='custom'}
  for f in fields:

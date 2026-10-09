@@ -79,3 +79,32 @@ def test_full_product_update_never_omits_an_unverified_sibling_variant():
     checked,skipped=checked_order_products([good,bad],preserve_families=True)
     assert checked==[]
     assert set(skipped)=={'10001','unknown'}
+
+
+def test_shop_pack_override_wins_without_changing_supplier_minimum():
+    from app.suppliers.certilas_order_units import with_pack_overrides, order_notice
+    p=product(order_kg=12,unit_kg=2,price=92.72)
+    portal={'10001':p['_certilas_order_unit']}
+    overrides={'10001':{'ean':p['ean'],'kg_per_pack':2,'reason':'Verkoop uit winkelvoorraad per pak','updated_at':'2026-10-09'}}
+    p['_certilas_order_unit']=with_pack_overrides(portal,overrides)['10001']
+    assert _selling_price(p)==92.72
+    assert portal['10001']['minimum_order_kg']==12
+    assert p['_certilas_order_unit']['portal_minimum_order_kg']==12
+    assert 'Aantal 1 = één pak van 2 kg' in order_notice(p)
+
+
+def test_shop_pack_override_survives_a_new_portal_import():
+    import json
+    c=sqlite3.connect(':memory:')
+    c.execute('create table certilas_order_units(sku text primary key, rule_json text)')
+    c.execute('create table certilas_pack_overrides(sku text primary key, rule_json text)')
+    c.execute('insert into certilas_pack_overrides values (?,?)',('10001',json.dumps({'ean':'8720663400000','kg_per_pack':2,'reason':'Winkelpak','updated_at':'2026-10-09'})))
+    c.execute('insert into certilas_order_units values (?,?)',('10001',json.dumps({'ean':'8720663400000','minimum_order_kg':18})))
+    assert load_order_units(c)['10001']['minimum_order_kg']==2
+    assert load_order_units(c)['10001']['portal_minimum_order_kg']==18
+
+
+def test_shop_pack_override_cannot_silently_follow_a_different_article_ean():
+    from app.suppliers.certilas_order_units import with_pack_overrides
+    with pytest.raises(ValueError,match='afwijkend EAN'):
+        with_pack_overrides({'10001':{'ean':'new-ean'}},{'10001':{'ean':'old-ean','kg_per_pack':2,'reason':'Winkelpak','updated_at':'2026-10-09'}})
