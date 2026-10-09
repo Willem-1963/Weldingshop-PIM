@@ -5,6 +5,13 @@ from app.suppliers.routes import ROUTES
 from app.product_maker_standalone.shopify import _protect_existing_tree
 
 
+def with_verified_minimum(product, weight=1):
+    product.update(ean="8720663400000", kg_per_sales_unit=weight,
+        _certilas_order_unit={"ean":"8720663400000", "minimum_quantity":1,
+            "quantity_step":1, "kg_per_order_unit":weight, "minimum_order_kg":weight})
+    return product
+
+
 @pytest.mark.parametrize("slug", [*ROUTES, "future-supplier"])
 def test_every_supplier_preserves_existing_tree_and_upserts_commercial_fields(slug):
     product = {
@@ -26,6 +33,8 @@ def test_every_supplier_preserves_existing_tree_and_upserts_commercial_fields(sl
     if slug == "rhodius-abrasives-gmbh":
         product["_raw_data"].update({"VE": 1, "GTIN-code": "123", "GTIN/verpakking": "123",
                                      "Gewicht in kg/stuk": 0.1, "Prijseenheid": "€/stuk"})
+    if slug == "certilas":
+        with_verified_minimum(product)
     existing = {"TEST-1": {
         "product": {"id": "product-1", "handle": "artikel", "tags": ["Mijn structuur"]},
         "variant": {"id": "variant-1", "sku": "TEST-1"},
@@ -85,6 +94,7 @@ def test_certilas_family_keeps_bundle_and_combined_packaging_fields():
                 "packaging_code": code, "packaging_name": "Spoel", "package_weight_label": "2,4 kg",
             },
         })
+        with_verified_minimum(products[-1], 2.4)
         matches[sku] = {"product": {"id": "product-1", "handle": "wire"},
                         "variant": {"id": f"variant-{number}", "sku": sku}}
     updates = []
@@ -106,6 +116,6 @@ def test_certilas_bundle_cleanup_never_deletes_tree_fields():
         "variant": {"id": "v1", "metafields": {"nodes": [
         {"key": key} for key in sync.COLLECTION_CUSTOM_METAFIELD_KEYS]}}}
     assert sync._certilas_stale_bundle_metafield_identifiers(
-        [{"sku": "CERT-1", "_supplier_slug": "certilas", "_raw_data": {}}],
+        [with_verified_minimum({"sku": "CERT-1", "_supplier_slug": "certilas", "_raw_data": {}})],
         {"CERT-1": match},
     ) == []

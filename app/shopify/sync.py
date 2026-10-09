@@ -42,6 +42,10 @@ from app.suppliers.category_locks import (
 from app.suppliers.rhodius_sales_unit import (
     apply_shopify_sales_unit, sales_unit_rule, shopify_stock_quantity,
 )
+from app.suppliers.certilas_order_units import (
+    load_order_units, verified_order_unit, order_price_factor, order_notice,
+    checked_order_products,
+)
 
 
 Progress = Callable[[int, str], None]
@@ -746,6 +750,7 @@ def _source_products(slug: str) -> list[dict[str, Any]]:
     conn = sqlite3.connect(supplier_database_path(slug))
     conn.row_factory = sqlite3.Row
     try:
+        certilas_units = load_order_units(conn) if slug == "certilas" else {}
         rows = conn.execute(
             "SELECT * FROM products WHERE source_present=1 ORDER BY sku"
         ).fetchall()
@@ -753,6 +758,8 @@ def _source_products(slug: str) -> list[dict[str, Any]]:
         for row in rows:
             item = dict(row)
             item["_supplier_slug"] = slug
+            if slug == "certilas":
+                item["_certilas_order_unit"] = certilas_units.get(str(item["sku"]))
             item["images"] = [
                 dict(image)
                 for image in conn.execute(
@@ -789,6 +796,7 @@ def _sync_record_hash(
         },
         "images": product.get("images") or [],
         "raw_data": product.get("_raw_data") or {},
+        "certilas_order_unit": product.get("_certilas_order_unit"),
         "field_mapping": supplier.get("shopify_field_mapping") or {},
         "metafield_mapping": (
             supplier.get("shopify_metafield_mapping") or {}
@@ -1571,16 +1579,26 @@ def _selling_price(product: dict[str, Any]) -> float | None:
     )
     if value is not None:
         price = float(value)
-        bundle_quantity = _certilas_mandatory_bundle_quantity(product)
-        if bundle_quantity is not None and price > 0:
-            return round(price * bundle_quantity, 2)
-        return price
+        factor = order_price_factor(product)
+        return round(price * factor, 2) if str(product.get("_supplier_slug") or "").lower() == "certilas" else price
     gross_per_kg = product.get("gross_purchase_price_per_kg")
     package_weight = product.get("kg_per_sales_unit")
     if gross_per_kg is not None and package_weight is not None:
-        return round(float(gross_per_kg) * float(package_weight), 2)
+        return round(float(gross_per_kg) * float(package_weight) * order_price_factor(product), 2)
     return None
 
+
+
+def _apply_certilas_inventory_unit(product: dict[str, Any], variant: dict[str, Any]) -> None:
+    rule = verified_order_unit(product)
+    if rule is None:
+        return
+    inventory = variant.setdefault("inventoryItem", {})
+    if inventory.get("cost") is not None:
+        inventory["cost"] = f"{float(inventory['cost']) * order_price_factor(product):.2f}"
+    inventory["measurement"] = {"weight": {
+        "value": float(rule["minimum_order_kg"]), "unit": "KILOGRAMS",
+    }}
 
 def _certilas_source_decimal(
     product: dict[str, Any], key: str,
@@ -1609,26 +1627,8 @@ def _certilas_source_decimal(
 def _certilas_mandatory_bundle_quantity(
     product: dict[str, Any],
 ) -> int | None:
-    """Return the safe whole-package bundle quantity from the Certilas feed.
-
-    The source fields are weights. A bundle is only considered mandatory when
-    it is heavier than one package and their ratio is a whole number. This
-    intentionally excludes missing prices, NaN values and ambiguous source
-    rows instead of guessing a commercial quantity.
-    """
-    if str(product.get("_supplier_slug") or "").casefold() != "certilas":
-        return None
-    unit_weight = _certilas_source_decimal(product, "KG Ceweld Unit")
-    bundle_weight = _certilas_source_decimal(product, "KG Ceweld Bundle")
-    if not unit_weight or not bundle_weight:
-        return None
-    if bundle_weight <= unit_weight:
-        return None
-    ratio = bundle_weight / unit_weight
-    quantity = round(ratio)
-    if quantity < 2 or abs(ratio - quantity) > 1e-6:
-        return None
-    return int(quantity)
+    """Legacy compatibility: bundle weights never prove mandatory quantities."""
+    return None
 
 
 def _certilas_bundle_metafields(
@@ -1718,16 +1718,7 @@ def _certilas_bundle_metafields(
             decimal_text(float(purchase_weight)) if purchase_weight else None,
         ),
         "minimale_afname": (
-            "single_line_text_field",
-            (
-                "Let op: deze prijs geldt voor één verplichte bundel van "
-                f"{quantity} verpakkingen à {dutch_decimal(unit_weight)} kg. "
-                f"Totaalgewicht {dutch_decimal(bundle_weight)} kg. "
-                "Prijs per verpakking "
-                f"€{f'{package_price:.2f}'.replace('.', ',')}."
-            )
-            if quantity and unit_weight and bundle_weight and package_price > 0
-            else None,
+            "single_line_text_field", order_notice(product),
         ),
     }
     return [
@@ -2614,7 +2605,7 @@ def _input(
     price = _selling_price(product)
     mapped_price = _mapped(product, "variant.price")
     if mapped_price not in (None, ""):
-        price = float(mapped_price)
+        price = float(mapped_price) * order_price_factor(product)
     if price is None:
         price = 0
     variant: dict[str, Any] = {
@@ -2646,6 +2637,7 @@ def _input(
     mapped_cost = _mapped(product, "inventory.cost")
     if mapped_cost not in (None, ""):
         variant["inventoryItem"]["cost"] = f"{float(mapped_cost):.2f}"
+    _apply_certilas_inventory_unit(product, variant)
     if existing:
         variant["id"] = existing["variant"]["id"]
     variant_metafields_by_key = {
@@ -3103,6 +3095,7 @@ def _price_only_variant_rows(
             variant["inventoryItem"] = {
                 "cost": f"{float(mapped_cost):.2f}",
             }
+        _apply_certilas_inventory_unit(product, variant)
         bundle_metafields = _certilas_bundle_metafields(product)
         if bundle_metafields:
             variant["metafields"] = bundle_metafields
@@ -3612,6 +3605,15 @@ def sync_all_products(
         )
         source = [p for p in source if str(p.get("sku") or "").upper() not in blocked_skus]
         missing_source = [p for p in missing_source if str(p.get("sku") or "").upper() not in blocked_skus]
+    if slug == "certilas":
+        source, unchecked_order_skus = checked_order_products(
+            source, preserve_families=not bool(
+                (supplier.get("request_options") or {}).get("shopify_prices_only")
+            ),
+        )
+        if unchecked_order_skus:
+            _progress(progress_callback, 3,
+                      f"Certilas: {len(unchecked_order_skus)} artikelen overgeslagen: minimumafname niet volledig bevestigd")
     priced = [product for product in source if _has_valid_price(product)]
     unpriced = [product for product in source if not _has_valid_price(product)]
     if (supplier.get("request_options") or {}).get("shopify_prices_only"):

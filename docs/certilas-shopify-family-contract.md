@@ -26,7 +26,29 @@ de commerciële Shopify-opbouw van Certilas-producten.
    familieopbouw geeft geen toestemming om het volledige assortiment aan te
    maken.
 
-## Herstel en controle
+## Minimale bestelhoeveelheid (9 oktober 2026)
+
+- `KG Ceweld Unit` en `KG Ceweld Bundle` beschrijven verpakkingen; een
+  bundelgewicht bewijst geen verplichte afname.
+- De dealerportal is leidend: `min` en `step` van `txtCount_<sku>` plus het
+  gewicht uit `changeWeightAmount` bepalen de minimale verkoopeenheid.
+  Minimumgewicht = minimumaantal × kg per portalbesteleenheid.
+- Portalgegevens worden met SKU, EAN, bron-URL en controledatum apart in
+  `certilas_order_units` opgeslagen. Nieuwe Excel-imports wissen ze niet.
+- Shopify-aantal 1 staat voor één minimumhoeveelheid. Verkoopprijs en
+  kostprijs worden naar dat gewicht omgerekend; het verzendgewicht is het
+  minimumgewicht. De variantmelding benoemt deze hoeveelheid expliciet.
+- Verhoudingen hoeven geen hele aantallen fysieke verpakkingen te zijn:
+  artikel 10022 heeft een minimumafname van 13,2 kg, ongeacht het fysieke
+  verpakkingsgewicht van 2 kg in de bron.
+- Artikelen zonder gecontroleerde portalregel of met een afwijkend EAN
+  worden niet automatisch naar een veronderstelde minimumhoeveelheid omgezet.
+- `scripts/collect_certilas_order_units.py` verzamelt gegevens zonder
+  winkelwagenwijzigingen. `scripts/apply_certilas_order_units.py` maakt
+  standaard een plan; `--apply` schrijft het gecontroleerde resultaat en
+  bewaart herstelbestanden en een verificatierapport onder `data/audit/`.
+
+## Herstelbestanden
 
 - Droge en uitgevoerde herstelruns worden onder `data/audit/` vastgelegd.
 - `scripts/rebuild_certilas_shopify_families.py` draait standaard alleen als

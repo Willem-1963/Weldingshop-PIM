@@ -1,158 +1,81 @@
-from app.shopify.sync import (
-    _certilas_bundle_metafields,
-    _certilas_mandatory_bundle_quantity,
-    _certilas_stale_bundle_metafield_identifiers,
-    _price_only_variant_rows,
-    _selling_price,
-)
+import sqlite3
+import pytest
+from app.shopify.sync import _selling_price, _certilas_bundle_metafields, _price_only_variant_rows
+from app.suppliers.certilas_order_units import load_order_units, verified_order_unit
+from scripts.collect_certilas_order_units import parse_order_units
 
+def product(order_kg=3, unit_kg=3, price=100, bundle=18):
+    return {'sku':'10001','ean':'8720663400000','_supplier_slug':'certilas',
+            'sale_price':price,'cost_price':50,'kg_per_sales_unit':unit_kg,
+            '_raw_data':{'KG Ceweld Unit':str(unit_kg),'KG Ceweld Bundle':str(bundle)},
+            '_certilas_order_unit':{'ean':'8720663400000','minimum_quantity':1,
+                'quantity_step':1,'kg_per_order_unit':order_kg,'minimum_order_kg':order_kg,
+                'source_url':'https://portaal.certilas.nl/example','checked_at':'2026-10-09'}}
 
-def certilas_product(unit="2,4", bundle="14,4", sale_price=250.69):
-    return {
-        "_supplier_slug": "certilas",
-        "sale_price": sale_price,
-        "_raw_data": {
-            "KG Ceweld Unit": unit,
-            "KG Ceweld Bundle": bundle,
-        },
-    }
+def test_bundle_weight_is_not_minimum_order():
+    p=product()
+    assert _selling_price(p)==100
+    fields={f['key']:f['value'] for f in _certilas_bundle_metafields(p)}
+    assert fields['verplichte_bundel']=='false'
+    assert 'verpakkingen_per_bundel' not in fields
+    assert fields['minimale_afname']=='Minimale bestelhoeveelheid: 3 kg. De getoonde prijs geldt voor 3 kg. Aantal 1 = 3 kg.'
 
+def test_fractional_package_ratio_uses_actual_order_weight():
+    p=product(order_kg=13.2,unit_kg=2,price=31.04,bundle=13.2)
+    assert _selling_price(p)==204.86
+    fields={f['key']:f['value'] for f in _certilas_bundle_metafields(p)}
+    assert '13,2 kg' in fields['minimale_afname']
 
-def test_certilas_whole_bundle_uses_complete_bundle_price():
-    product = certilas_product()
+def test_minimum_can_exceed_single_portal_order_unit():
+    p=product(order_kg=6,unit_kg=3)
+    p['_certilas_order_unit'].update(minimum_quantity=2,kg_per_order_unit=3)
+    assert _selling_price(p)==200
 
-    assert _certilas_mandatory_bundle_quantity(product) == 6
-    assert _selling_price(product) == 1504.14
+@pytest.mark.parametrize('field,value',[('minimum_order_kg',0),('kg_per_order_unit',float('nan')),('quantity_step',0),('ean','wrong')])
+def test_invalid_or_mismatched_portal_data_blocks_publication(field,value):
+    p=product();p['_certilas_order_unit'][field]=value
+    with pytest.raises(ValueError):_selling_price(p)
 
+def test_missing_verified_minimum_is_never_guessed_from_bundle():
+    p=product();p.pop('_certilas_order_unit')
+    with pytest.raises(ValueError):_selling_price(p)
 
-def test_certilas_four_pack_bundle_is_supported():
-    product = certilas_product(unit="2,0", bundle="8,0", sale_price=197)
+def test_other_suppliers_are_unchanged():
+    p=product();p['_supplier_slug']='tecweld';p.pop('_certilas_order_unit')
+    assert _selling_price(p)==100
 
-    assert _certilas_mandatory_bundle_quantity(product) == 4
-    assert _selling_price(product) == 788.0
+def test_price_cost_shipping_weight_share_same_sale_unit():
+    p=product(order_kg=13.2,unit_kg=2,price=31.04)
+    rows=_price_only_variant_rows([p],{'10001':{'product':{'id':'p'},'variant':{'id':'v'}}})
+    v=rows[0]['variants'][0]
+    assert v['price']=='204.86'
+    assert v['inventoryItem']['cost']=='330.00'
+    assert v['inventoryItem']['measurement']['weight']=={'value':13.2,'unit':'KILOGRAMS'}
 
+def test_portal_parser_uses_order_weight_not_kg_per_package_column():
+    html='''<table><tr><td>Vacuum 2 8720663400000</td><td><input name="txtCount_10001" min="1" step="1" onchange="changeWeightAmount(this, '13.2000');"></td></tr></table>'''
+    row=parse_order_units(html,'https://portaal.certilas.nl/example')[0]
+    assert row['minimum_order_kg']==13.2
+    assert row['sku']=='10001'
 
-def test_ambiguous_certilas_ratio_is_not_guessed():
-    product = certilas_product(unit="2,0", bundle="13,2", sale_price=52.77)
+def test_separate_database_table_survives_replacement_of_import_rows():
+    c=sqlite3.connect(':memory:')
+    assert load_order_units(c)=={}
+    c.execute('create table certilas_order_units(sku text, rule_json text)')
+    c.execute('insert into certilas_order_units values (?,?)',('10001','{"minimum_order_kg":3}'))
+    assert load_order_units(c)['10001']['minimum_order_kg']==3
 
-    assert _certilas_mandatory_bundle_quantity(product) is None
-    assert _selling_price(product) == 52.77
+def test_unknown_minimum_does_not_stop_other_price_updates():
+    from app.suppliers.certilas_order_units import checked_order_products
+    good=product();bad=product();bad['sku']='unknown';bad.pop('_certilas_order_unit')
+    checked,skipped=checked_order_products([good,bad],preserve_families=False)
+    assert checked==[good]
+    assert skipped==['unknown']
 
-
-def test_missing_or_nan_bundle_weight_is_not_a_bundle():
-    missing = certilas_product(bundle=None)
-    nan = certilas_product(bundle="nan")
-
-    assert _certilas_mandatory_bundle_quantity(missing) is None
-    assert _certilas_mandatory_bundle_quantity(nan) is None
-
-
-def test_other_supplier_price_is_unchanged():
-    product = certilas_product()
-    product["_supplier_slug"] = "tecweld"
-
-    assert _certilas_mandatory_bundle_quantity(product) is None
-    assert _selling_price(product) == 250.69
-
-
-def metafields_by_key(product):
-    return {item["key"]: item for item in _certilas_bundle_metafields(product)}
-
-
-def test_certilas_bundle_metafields_and_notice_follow_pim_formula():
-    product = certilas_product()
-    product.update({
-        "gross_purchase_price_per_kg": 90.57,
-        "net_purchase_price_per_kg": 27.17,
-        "kg_per_sales_unit": 2.5,
-        "cost_price": 84.025,
-        "_raw_data": {
-            **product["_raw_data"],
-            "Discount": "70.0%",
-        },
-    })
-    fields = metafields_by_key(product)
-
-    assert fields["verplichte_bundel"]["value"] == "true"
-    assert fields["certilas_product"] == {"namespace": "custom", "key": "certilas_product", "type": "boolean", "value": "true"}
-    assert fields["verpakkingen_per_bundel"]["value"] == "6"
-    assert fields["kg_per_verpakking"]["value"] == "2.4"
-    assert fields["kg_per_bundel"]["value"] == "14.4"
-    assert fields["prijs_per_verpakking"]["value"] == "250.69"
-    assert fields["minimale_afname"]["value"] == (
-        "Let op: deze prijs geldt voor één verplichte bundel van "
-        "6 verpakkingen à 2,4 kg. Totaalgewicht 14,4 kg. "
-        "Prijs per verpakking €250,69."
-    )
-    assert fields["inkoop_brutoprijs"]["value"] == "226.425"
-    assert fields["inkoop_korting_percentage"]["value"] == "70"
-    assert fields["inkoop_netto_prijs"]["value"] == "67.925"
-    assert fields["inkoop_legeringstoeslag"]["value"] == "16.1"
-    assert fields["inkoop_verpakkingsgewicht"]["value"] == "2.5"
-
-
-def test_certilas_missing_bundle_clears_bundle_only_fields():
-    fields = metafields_by_key(certilas_product(unit="3,2", bundle=None))
-
-    assert fields["verplichte_bundel"]["value"] == "false"
-    assert fields["kg_per_verpakking"]["value"] == "3.2"
-    assert fields["prijs_per_verpakking"]["value"] == "250.69"
-    assert "verpakkingen_per_bundel" not in fields
-    assert "kg_per_bundel" not in fields
-    assert "minimale_afname" not in fields
-
-
-def test_price_only_rows_also_persist_certilas_bundle_fields():
-    product = certilas_product()
-    product["sku"] = "50620"
-    product["cost_price"] = 84.025
-    existing = {
-        "50620": {
-            "product": {"id": "gid://shopify/Product/1"},
-            "variant": {"id": "gid://shopify/ProductVariant/2"},
-        }
-    }
-
-    rows = _price_only_variant_rows([product], existing)
-
-    variant = rows[0]["variants"][0]
-    assert variant["price"] == "1504.14"
-    assert variant["inventoryItem"] == {"cost": "84.03"}
-    assert {item["key"] for item in variant["metafields"]} == {
-        "verplichte_bundel", "verpakkingen_per_bundel",
-        "kg_per_verpakking", "kg_per_bundel", "prijs_per_verpakking",
-        "minimale_afname", "inkoop_verpakkingsgewicht",
-        "certilas_product",
-    }
-
-
-def test_stale_bundle_and_product_notice_fields_are_deleted():
-    product = certilas_product(unit="3,2", bundle=None)
-    product["sku"] = "50650"
-    existing = {
-        "50650": {
-            "product": {
-                "id": "gid://shopify/Product/1",
-                "metafields": {"nodes": [{"key": "minimale_afname"}]},
-            },
-            "variant": {
-                "id": "gid://shopify/ProductVariant/2",
-                "metafields": {"nodes": [
-                    {"key": "verpakkingen_per_bundel"},
-                    {"key": "kg_per_bundel"},
-                    {"key": "minimale_afname"},
-                ]},
-            },
-        }
-    }
-
-    identifiers = _certilas_stale_bundle_metafield_identifiers(
-        [product], existing
-    )
-
-    assert {(item["ownerId"], item["key"]) for item in identifiers} == {
-        ("gid://shopify/Product/1", "minimale_afname"),
-        ("gid://shopify/ProductVariant/2", "verpakkingen_per_bundel"),
-        ("gid://shopify/ProductVariant/2", "kg_per_bundel"),
-        ("gid://shopify/ProductVariant/2", "minimale_afname"),
-    }
+def test_full_product_update_never_omits_an_unverified_sibling_variant():
+    from app.suppliers.certilas_order_units import checked_order_products
+    good=product();bad=product();bad['sku']='unknown';bad.pop('_certilas_order_unit')
+    for p in [good,bad]:p['_family_variant_options']={'family_key':'family'}
+    checked,skipped=checked_order_products([good,bad],preserve_families=True)
+    assert checked==[]
+    assert set(skipped)=={'10001','unknown'}
