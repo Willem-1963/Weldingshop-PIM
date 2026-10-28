@@ -1,0 +1,10 @@
+[Unit]
+Description=Controleer de Facebook-blogplanning iedere 15 minuten
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=weldingshop-facebook-blog.service
+
+[Install]
+WantedBy=timers.target

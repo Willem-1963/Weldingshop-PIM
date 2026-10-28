@@ -1,0 +1,15 @@
+[Unit]
+Description=Weldingshop PIM dagelijkse Facebook-blogpost
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/root/weldingshop-pim
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/weldingshop-pim/.venv/bin/python -m app.social.facebook
+TimeoutStartSec=30min
+StandardOutput=append:/root/weldingshop-pim/logs/facebook-blog.log
+StandardError=append:/root/weldingshop-pim/logs/facebook-blog.log

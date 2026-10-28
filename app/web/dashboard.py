@@ -1830,6 +1830,7 @@ PIM_SECTIONS = [
     "Leverancierssynchronisatie",
     "Bundelbouwer",
     "Labels",
+    "Facebook-blogposts",
     "Back-ups",
 ]
 SECTION_QUERY_VALUES = {
@@ -1838,6 +1839,7 @@ SECTION_QUERY_VALUES = {
     "Leverancierssynchronisatie": "suppliers",
     "Bundelbouwer": "bundles",
     "Labels": "labels",
+    "Facebook-blogposts": "facebook",
     "Back-ups": "backups",
 }
 QUERY_VALUE_SECTIONS = {
@@ -1987,6 +1989,11 @@ if main_section == "Bundelbouwer":
 
 if main_section == "Labels":
     show_label_page(force_reload=entering_labels)
+    st.stop()
+
+if main_section == "Facebook-blogposts":
+    from app.web.facebook_page import show_facebook_page
+    show_facebook_page()
     st.stop()
 
 if main_section == "Back-ups":
