@@ -229,7 +229,11 @@ def fetch_articles(client=None, now=None):
             excerpt = re.sub(r"\s+", " ", excerpt).strip()
             if len(excerpt) > 240:
                 excerpt = excerpt[:237].rsplit(" ", 1)[0] + "…"
-            a["message"] = a["title"] + ("\n\n" + excerpt if excerpt else "") + "\n\nLees het artikel op Weldingshop.nl."
+            a["message"] = (
+                a["title"] + ("\n\n" + excerpt if excerpt else "")
+                + "\n\nLees het artikel op Weldingshop.nl."
+                + "\n\nWil je onze tips blijven volgen? Zet meldingen voor deze pagina aan."
+            )
             rows.append(a)
         if not payload["pageInfo"]["hasNextPage"]:
             break
