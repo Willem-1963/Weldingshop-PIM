@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Live barcodescanner</title>
+  <script src="./streamlit-component-lib.js"></script>
+  <script src="./html5-qrcode.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; background: transparent; font: 15px/1.35 system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
+    #shell { width: 100%; }
+    #camera-stage { position: relative; width: 100%; min-height: 260px; overflow: hidden; border-radius: 12px; background: #111; }
+    #reader { width: 100%; min-height: 260px; overflow: hidden; border-radius: 12px; background: #111; }
+    #reader video { display: block !important; width: 100% !important; height: 260px !important; object-fit: cover !important; border-radius: 12px; }
+    #reader__scan_region { min-height: 260px !important; background: #111 !important; }
+    #reader__scan_region > img { display: none !important; }
+    #reader__dashboard, #reader__header_message { display: none !important; }
+    #status { margin-top: 8px; min-height: 22px; color: #4b5563; text-align: center; font-weight: 600; }
+    #status.success { color: #15803d; }
+    #status.error { color: #b91c1c; }
+    #placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; background: #111; font-weight: 700; pointer-events: none; }
+    #retry { display: block; width: 100%; margin-top: 8px; min-height: 44px; border: 0; border-radius: 8px; background: #ff4b4b; color: white; font: inherit; font-weight: 700; }
+    @media (max-width: 480px) {
+      #camera-stage, #reader, #reader__scan_region { min-height: 240px !important; }
+      #reader video { height: 240px !important; }
+    }
+  </style>
+</head>
+<body>
+  <main id="shell">
+    <div id="camera-stage">
+      <div id="reader" aria-label="Live camerabeeld voor barcodes"></div>
+      <div id="placeholder">Camera staat uit</div>
+    </div>
+    <div id="status" role="status">Tik hieronder om de achtercamera te starten</div>
+    <button id="retry" type="button">Camera starten</button>
+  </main>
+  <script src="./main.js"></script>
+</body>
+</html>

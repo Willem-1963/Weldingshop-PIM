@@ -1,0 +1,1358 @@
+{
+  "schema_version": 1,
+  "name": "near-25-cat-pompen-phase-1-fixture",
+  "supplier_scope": [
+    "valkenpower"
+  ],
+  "controlled_tag_registry": [
+    {
+      "tag": "cat-pompen",
+      "supplier_scope": [
+        "valkenpower"
+      ],
+      "supplier_aliases": [
+        "Valkenpower"
+      ],
+      "owner": "weldingshop-taxonomy",
+      "policy": "exact-controlled-tag-v1",
+      "version": "near-25-phase-1",
+      "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+      "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+    }
+  ],
+  "products": [
+    {
+      "sku": "VP-DP20HE",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BVAL15",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BVAL114",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BVAL20",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BVAL30",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP12VD",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP24VD",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HF24L",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HF50L",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HF24R",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-4SM56F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-4SM58F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-4SM512F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP60B8A",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP40V12",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP40V24",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DPK40V24",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP20E",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP30E",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP40E",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DP60E",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-TEP700B",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL114",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL10",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL15",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL20",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL30",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-VAL034",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DPK40V12",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-P50KB2",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP2A34",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP2A10",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HA2",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP12W1",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP12W2",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP220WH",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HP380W1",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MJS100AUTO",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MJS100AUTORVS",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HT24M",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-HT50L",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-OP06V12",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-OP06V24",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MPS60",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-PC08C",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-PS02C",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MS14",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MS12",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MJSW3BL",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MTK1500",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MTK2000",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-SWI250",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-WSP550",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-SP100",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DSP370",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-WSP550V",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BL2512N",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BL2524N",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-DSP370V",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-SP100F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS7",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS10",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS20",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS10F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS20F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MVS7F",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-BWT1025",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MSP800G",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MJ100L",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-MJS100",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-TEPC70B2",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    },
+    {
+      "sku": "VP-P50KB2N",
+      "supplier": "valkenpower",
+      "desired_controlled_tags": [
+        "cat-pompen"
+      ],
+      "taxonomy_lock": {
+        "locked": true,
+        "approved_tags": [
+          "cat-pompen"
+        ],
+        "owner": "weldingshop-taxonomy",
+        "policy": "exact-controlled-tag-v1",
+        "version": "near-25-phase-1",
+        "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+        "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL"
+      }
+    }
+  ],
+  "tombstones": [
+    {
+      "sku": "VP-CPTRVO",
+      "supplier": "valkenpower",
+      "tag": "cat-pompen",
+      "reason": "approved accessory-only exclusion; retain compressor accessory routes",
+      "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL",
+      "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+      "owner": "weldingshop-taxonomy",
+      "policy": "exact-controlled-tag-v1",
+      "version": "near-25-phase-1"
+    },
+    {
+      "sku": "VP-CPRVS",
+      "supplier": "valkenpower",
+      "tag": "cat-pompen",
+      "reason": "approved accessory-only exclusion; retain compressor accessory routes",
+      "approval_provenance": "near-25-owner-challenge-2026-10-21:SMART_CANONICAL",
+      "source_digest": "73d591c82b9571847862518594fc70bfa7ed7a6159b6d29aef4b1c42d2316080",
+      "owner": "weldingshop-taxonomy",
+      "policy": "exact-controlled-tag-v1",
+      "version": "near-25-phase-1"
+    }
+  ],
+  "prior_projector_owned_ledger": [],
+  "supplier_alias_registry": [
+    {
+      "alias": "Valkenpower",
+      "supplier": "valkenpower"
+    }
+  ],
+  "fixture_metadata": {
+    "kind": "test-only-approved-manifest",
+    "scope": "near-25 curated cat-pompen owner scope: 72 desired SKUs plus 2 explicit tombstones",
+    "provenance": "near-25 owner challenge evidence dated 2026-10-21; not a live catalog snapshot",
+    "live_proof_requirement": "generate separately at runtime with read-only Shopify catalog traversal"
+  }
+}

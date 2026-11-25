@@ -15,6 +15,7 @@ Het algemene afbeeldingenpaneel toont bij ontbrekende afbeeldingen een leveranci
 - [Ultimatron-spreadsheetverrijking](ULTIMATRON_ENRICHMENT.md): bestaande spreadsheet-SKU’s, Nederlandse vertaling en indeling op nominale spanning.
 
 - [Rhodius VE en GTIN](RHODIUS_SALES_UNIT.md): gerichte sync van bestaande stuk-/verpakkingseenheden, bescherming van voorraadproducten en eerdere Shopify-testconcepten.
+- [Facebook-blogposts](facebook-blogposts.md): koppeling vernieuwen, planning en historie voor Facebook-publicaties.
 
 ## Projectstatus
 

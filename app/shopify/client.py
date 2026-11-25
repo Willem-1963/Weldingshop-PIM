@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import time
 from typing import Any
 
@@ -18,17 +19,18 @@ from app.suppliers.hub import (
 
 
 DEFAULT_API_VERSION = "2026-07"
-THROTTLE_RETRIES = 8
+THROTTLE_RETRIES = 12
 THROTTLE_FALLBACK_SECONDS = 1.5
 THROTTLE_MAX_WAIT_SECONDS = 30.0
+logger = logging.getLogger(__name__)
 
 
 def _is_throttled(errors: Any) -> bool:
-    return any(
-        str((error.get("extensions") or {}).get("code") or "").upper()
+    return bool(errors) and all(
+        isinstance(error, dict)
+        and str((error.get("extensions") or {}).get("code") or "").upper()
         == "THROTTLED"
         for error in errors or []
-        if isinstance(error, dict)
     )
 
 
@@ -40,9 +42,11 @@ def _throttle_wait_seconds(payload: dict[str, Any], attempt: int) -> float:
     available = float(status.get("currentlyAvailable") or 0)
     restore_rate = float(status.get("restoreRate") or 0)
     if restore_rate > 0 and requested > available:
-        return min(
-            THROTTLE_MAX_WAIT_SECONDS,
-            max(1.0, (requested - available) / restore_rate + 0.25),
+        # Other workers can consume the restored budget before our next attempt.
+        # Escalate repeated throttles even when Shopify reports a short wait.
+        return max(
+            (requested - available) / restore_rate + 0.25,
+            min(THROTTLE_MAX_WAIT_SECONDS, 1.25 * (2 ** attempt)),
         )
     return min(
         THROTTLE_MAX_WAIT_SECONDS,
@@ -212,7 +216,12 @@ class ShopifyClient:
                 return payload.get("data") or {}
             if not _is_throttled(errors) or attempt == THROTTLE_RETRIES - 1:
                 raise RuntimeError(str(errors))
-            time.sleep(_throttle_wait_seconds(payload, attempt))
+            wait_seconds = _throttle_wait_seconds(payload, attempt)
+            logger.warning(
+                "Shopify throttled request; retry %s/%s in %.2fs",
+                attempt + 1, THROTTLE_RETRIES - 1, wait_seconds,
+            )
+            time.sleep(wait_seconds)
         raise AssertionError("unreachable")
 
     def shop_and_locations(self) -> dict[str, Any]:
@@ -418,9 +427,16 @@ def set_collection_inventory_policy(
 def ensure_derived_inventory_webhooks(
     callback_url: str = "https://pim.weldingshop.nl/shopify/webhooks/inventory",
 ) -> dict[str, Any]:
-    """Create the three required subscriptions, without duplicating existing ones."""
+    """Create the required PIM webhook subscriptions without duplicates."""
     client = ShopifyClient.from_settings()
-    topics = {"ORDERS_CREATE", "ORDERS_CANCELLED", "REFUNDS_CREATE"}
+    topics = {
+        "DRAFT_ORDERS_CREATE",
+        "DRAFT_ORDERS_UPDATE",
+        "ORDERS_CREATE",
+        "ORDERS_PAID",
+        "ORDERS_CANCELLED",
+        "REFUNDS_CREATE",
+    }
     data = client.graphql(
         """
         query PimInventoryWebhooks($first:Int!){

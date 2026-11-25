@@ -1827,20 +1827,24 @@ st.markdown(
 PIM_SECTIONS = [
     "Voorblad",
     "Nieuw product maken",
+    "Canonieke productvelden",
     "Leverancierssynchronisatie",
     "Bundelbouwer",
     "Labels",
     "Facebook-blogposts",
     "Back-ups",
+    "Werkplaatsconfigurator",
 ]
 SECTION_QUERY_VALUES = {
     "Voorblad": "home",
     "Nieuw product maken": "new-product",
+    "Canonieke productvelden": "canonical-fields",
     "Leverancierssynchronisatie": "suppliers",
     "Bundelbouwer": "bundles",
     "Labels": "labels",
     "Facebook-blogposts": "facebook",
     "Back-ups": "backups",
+    "Werkplaatsconfigurator": "workplace-configurator",
 }
 QUERY_VALUE_SECTIONS = {
     value: key for key, value in SECTION_QUERY_VALUES.items()
@@ -1983,6 +1987,11 @@ if main_section == "Nieuw product maken":
     show_product_maker()
     st.stop()
 
+if main_section == "Canonieke productvelden":
+    from app.web.canonical_fields_page import show_canonical_product_fields_page
+    show_canonical_product_fields_page()
+    st.stop()
+
 if main_section == "Bundelbouwer":
     show_bundle_builder(PROJECT_DIR)
     st.stop()
@@ -1994,6 +2003,11 @@ if main_section == "Labels":
 if main_section == "Facebook-blogposts":
     from app.web.facebook_page import show_facebook_page
     show_facebook_page()
+    st.stop()
+
+if main_section == "Werkplaatsconfigurator":
+    from app.web.workplace_configurator_page import show_workplace_configurator_page
+    show_workplace_configurator_page()
     st.stop()
 
 if main_section == "Back-ups":
@@ -2688,6 +2702,14 @@ def show_sync_job(slug: str) -> None:
         detail_columns[3].metric(
             "Naar Shopify", shopify.get("uploaded_or_updated", 0)
         )
+        partial_update = shopify.get("existing_partial_update") or {}
+        if partial_update:
+            st.caption(
+                f"Bestaande producten: {partial_update.get('updated', 0)} bijgewerkt, "
+                f"{partial_update.get('unchanged', 0)} zonder verschillen. Alleen gewijzigde velden verstuurd."
+            )
+            if partial_update.get("details"):
+                st.dataframe(pd.DataFrame(partial_update["details"]), hide_index=True, width="stretch")
         if change_detection:
             st.caption(
                 "Modus: "
@@ -4723,12 +4745,12 @@ with source_missing_products_tab:
             ),
         )
         delete_missing = st.checkbox(
-            "Product na de bewaartermijn definitief uit Shopify verwijderen",
+            "Product na de bewaartermijn in Shopify archiveren",
             value=bool(supplier.get("delete_missing_products", 0)),
             disabled=not draft_missing,
         )
         delete_after_months = st.number_input(
-            "Verwijderen nadat het product zoveel maanden ontbreekt",
+            "Archiveren nadat het product zoveel maanden ontbreekt",
             min_value=1,
             max_value=120,
             value=int(supplier.get("delete_missing_after_months") or 2),
@@ -5041,6 +5063,11 @@ with source_sync_planning_tab:
                 "Verplichte controle voor nieuwe producten: SKU ✓ · foto ✓ · "
                 "titel ✓ · omschrijving ✓ · verkoopprijs ✓ · inkoopprijs ✓"
             )
+        existing_partial_update = st.checkbox(
+            "Bestaande producten niet op volledigheid controleren; alleen gewijzigde gegevens bijwerken",
+            value=bool((supplier.get("request_options") or {}).get("existing_partial_update")),
+            help="Vergelijkt titel, omschrijving, barcode, verkoopprijs en inkoopprijs met Shopify. Lege velden wissen niets. Factuurartikelen wijzigen alleen de inkoopprijs. Bestaande status, kanalen, foto's en productindeling blijven behouden. Nieuwe producten moeten volledig zijn.",
+        )
         sync_changed_only = st.checkbox(
             "Alleen nieuwe en gewijzigde bronrecords synchroniseren",
             value=bool(supplier.get("sync_changed_only")),
@@ -5126,6 +5153,7 @@ with source_sync_planning_tab:
             new_product_policy=sync_new_product_policy,
             changed_only=sync_changed_only,
             family_on_change=sync_family_on_change,
+            existing_partial_update=existing_partial_update,
             dealer_pricelist_enabled=dealer_pricelist_enabled,
         )
         if sync_schedule_mode == "once":
@@ -6408,7 +6436,7 @@ with source_sales_pricing_subtab:
             "een regel aan voordat je prijzen voorvertoont of toepast."
         )
 
-    from app.suppliers.discounts import _calculated_sales_price
+    from app.suppliers.discounts import _calculated_sales_price, sales_price_calculation
     all_actual_products = [
         product for product in list_products(selected_slug, limit=10000)
         if product.get("source_present")
@@ -6529,6 +6557,12 @@ with source_sales_pricing_subtab:
                 """,
                 unsafe_allow_html=True,
             )
+            st.markdown("**Prijsberekening**")
+            st.info(
+                scoped_live_row["Prijsberekening"] if scoped_live_row else
+                sales_price_calculation(actual_gross_price(actual), actual.get("cost_price"),
+                    max_sales_discount, sales_rule_type, actual_result)
+            )
             product_by_sku = {
                 product["sku"]: product for product in all_actual_products
             }
@@ -6584,6 +6618,12 @@ with source_sales_pricing_subtab:
                     "Product": item.get("source_title") or item.get("source_description") or "",
                     "Huidige prijs": current_price,
                     "Resultaat": result_price,
+                    "Prijsberekening": (
+                        scoped_preview_by_sku.get(sku, {}).get("Prijsberekening", "")
+                        if active_scoped_sales_rules else
+                        sales_price_calculation(actual_gross_price(item), item.get("cost_price"),
+                            max_sales_discount, sales_rule_type, result_price)
+                    ),
                     "_eindruimte": "",
                 })
             st.markdown(f"#### {series_title}")
@@ -8201,7 +8241,8 @@ with products_tab:
         st.info("Nog geen producten geïmporteerd.")
 
 with viewer_tab:
-    st.markdown("#### Product vanaf leverancierswebsite toevoegen")
+    invoice_supplier = bool((supplier.get("request_options") or {}).get("erp_relation_id"))
+    st.markdown("#### Product vanuit factuur of leverancierswebsite toevoegen")
     st.info(
         f"Actieve leverancier: **{supplier['name']}**. Er wordt uitsluitend in "
         "de PIM en officiële bronnen van deze leverancier gezocht."
@@ -8220,7 +8261,7 @@ with viewer_tab:
             (
                 "Geselecteerd product verwerken"
                 if selected_slug == "tecweld"
-                else "Zoek, verrijk en sla op"
+                else "Zoek en sla op" if invoice_supplier else "Zoek, verrijk en sla op"
             ),
             key=f"website_import_{selected_slug}",
             type="primary",
@@ -8235,6 +8276,9 @@ with viewer_tab:
             width="stretch",
         )
     st.caption(
+        "Zoekt eerst op exact artikelnummer in de facturen van deze leverancier. "
+        "Een gevonden artikel wordt met factuuromschrijving en inkoopprijs in de PIM opgeslagen, zonder webonderzoek."
+        if invoice_supplier else
         f"Zoekt eerst exact via de eigen shoproute en daarna uitsluitend via "
         f"officiële websitedata van {supplier['name']}. "
         "Het resultaat wordt zonder prijs als concept opgeslagen en voor alle kanalen gemarkeerd."
@@ -8260,6 +8304,7 @@ with viewer_tab:
                 )
 
             with st.spinner(
+                f"{supplier['name']}: facturen controleren…" if invoice_supplier else
                 f"{supplier['name']}: PIM, officiële productpagina, foto's en "
                 "technische gegevens zoeken…"
             ):
@@ -8310,6 +8355,8 @@ with viewer_tab:
                     selected_slug, website_article_number.strip()
                 )
             st.success(
+                f"Product {result['sku']}: alleen de inkoopprijs in Shopify is bijgewerkt; titel, verkoopprijs en publicatiestatus zijn behouden."
+                if result.get("invoice_only_update") else
                 f"Product {result['sku']} is als Shopify-concept opgeslagen."
             )
             st.markdown(f"[Open product in Shopify]({result['admin_url']})")

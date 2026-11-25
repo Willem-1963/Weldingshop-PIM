@@ -36,6 +36,24 @@ def test_shopify_availability_overrides_feed_and_uses_selected_location():
     assert not any(p['_keep_active_when_out_of_stock'] for p in products)
 
 
+def test_approved_catalog_item_stays_visible_at_zero_inventory():
+    products = [{
+        'sku': 'VP-PK20LME',
+        'available': False,
+        '_raw_data': {
+            'category_file_import': {
+                'locked': True,
+                'values': {'keep_active_at_zero': True},
+            },
+        },
+    }]
+
+    sync._apply_shopify_stock_availability(StockClient(), products, {}, 'ws')
+
+    assert products[0]['available'] is False
+    assert products[0]['_keep_active_when_out_of_stock'] is True
+
+
 def test_inventory_source_round_trip_preserves_other_settings(tmp_path, monkeypatch):
     path = tmp_path / 'registry.sqlite'
     with sqlite3.connect(path) as db:

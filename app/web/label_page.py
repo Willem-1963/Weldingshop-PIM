@@ -7,7 +7,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import streamlit as st
@@ -15,6 +15,17 @@ import streamlit.components.v1 as components
 
 from app.suppliers.hub import get_supplier_product, list_products, list_suppliers
 from app.shopify.client import ShopifyClient
+from app.web.components.live_barcode_scanner import live_barcode_scanner
+from app.shopify.mobile_stock_count import (
+    BarcodeLinkCandidate,
+    StockCountTarget,
+    add_barcode_to_variant,
+    calculate_component_quantity,
+    decode_barcode_image,
+    lookup_barcode_link_candidate,
+    resolve_barcode_stock_target,
+    set_counted_stock,
+)
 from app.web.label_store import (
     delete_template,
     get_active_template,
@@ -754,13 +765,377 @@ def _preserve_product_label_layout() -> None:
 
 def show_label_page(force_reload: bool = False) -> None:
     st.title("Labels maken")
-    product_tab, free_tab, mobile_tab = st.tabs(["Productlabels", "Vrije labels", "Mobiel"])
+    product_tab, free_tab, mobile_tab, stock_tab = st.tabs(
+        ["Productlabels", "Vrije labels", "Mobiel", "Voorraad tellen"]
+    )
     with product_tab:
         _show_product_labels(force_reload)
     with free_tab:
         _show_free_labels()
     with mobile_tab:
         _show_mobile_labels()
+    with stock_tab:
+        _show_mobile_stock_count()
+
+
+def _reset_mobile_stock_count() -> None:
+    st.session_state.pop("mobile_stock_target", None)
+    st.session_state.pop("mobile_stock_pending_barcode", None)
+    st.session_state.pop("mobile_stock_barcode", None)
+    st.session_state.pop("mobile_stock_confirm", None)
+    st.session_state.pop("mobile_stock_packages", None)
+    st.session_state.pop("mobile_stock_loose", None)
+    st.session_state.pop("mobile_stock_pieces", None)
+    st.session_state.pop("mobile_stock_mode", None)
+    st.session_state.pop("mobile_stock_add_packages", None)
+    st.session_state.pop("mobile_stock_add_loose", None)
+    st.session_state.pop("mobile_stock_add_pieces", None)
+    st.session_state.pop("mobile_stock_total_packages", None)
+    st.session_state.pop("mobile_stock_total_loose", None)
+    st.session_state.pop("mobile_stock_total_pieces", None)
+    st.session_state.pop("mobile_stock_unknown_barcode", None)
+    st.session_state.pop("mobile_stock_link_sku", None)
+    st.session_state.pop("mobile_stock_link_candidate", None)
+    st.session_state.pop("mobile_stock_link_confirm", None)
+    st.session_state.pop("mobile_stock_live_last_value", None)
+    st.session_state["mobile_stock_live_enabled"] = True
+    st.session_state["mobile_stock_camera_generation"] = (
+        int(st.session_state.get("mobile_stock_camera_generation", 0)) + 1
+    )
+
+
+def _enable_mobile_live_scanner() -> None:
+    st.session_state["mobile_stock_live_enabled"] = True
+    st.session_state.pop("mobile_stock_live_last_value", None)
+
+
+def _show_mobile_stock_count() -> None:
+    if st.session_state.pop("mobile_stock_reset_after_save", False):
+        _reset_mobile_stock_count()
+    st.markdown("""<style>
+    @media (max-width: 768px) {
+      .st-key-mobile_stock_count [data-testid="stVerticalBlock"] { gap: .55rem; }
+      .st-key-mobile_stock_count input { font-size: 16px; }
+      .st-key-mobile_stock_count button { min-height: 2.6rem; }
+    }
+    </style>""", unsafe_allow_html=True)
+    with st.container(key="mobile_stock_count"):
+        st.subheader("Voorraad tellen")
+        last_success = st.session_state.pop("mobile_stock_last_success", None)
+        if last_success:
+            st.success(last_success)
+
+        generation = int(st.session_state.get("mobile_stock_camera_generation", 0))
+        pending_live_barcode = str(
+            st.session_state.pop("mobile_stock_pending_barcode", "") or ""
+        ).strip()
+        auto_lookup = bool(pending_live_barcode)
+
+        live_enabled = bool(st.session_state.get("mobile_stock_live_enabled", True))
+        if live_enabled:
+            live_value = live_barcode_scanner(
+                key=f"mobile_stock_live_scanner_{generation}",
+            )
+            st.caption(
+                "Tik op ‘Camera starten’ en richt de achtercamera op één barcode. "
+                "PIM boekt alleen op locatie Weldingshop en rekent een geldige "
+                "STOCK-componentkoppeling automatisch om."
+            )
+            clean_live_value = str(live_value or "").strip().replace(" ", "")
+            if (clean_live_value
+                    and clean_live_value != st.session_state.get("mobile_stock_live_last_value")):
+                st.session_state["mobile_stock_live_last_value"] = clean_live_value
+                st.session_state["mobile_stock_barcode"] = clean_live_value
+                st.session_state["mobile_stock_pending_barcode"] = clean_live_value
+                st.session_state["mobile_stock_live_enabled"] = False
+                st.session_state.pop("mobile_stock_target", None)
+                st.rerun()
+        elif (not isinstance(st.session_state.get("mobile_stock_target"), StockCountTarget)
+              and not pending_live_barcode):
+            st.button(
+                "Live scanner opnieuw tonen",
+                type="primary",
+                on_click=_enable_mobile_live_scanner,
+                width="stretch",
+                key="mobile_stock_live_start",
+            )
+
+        with st.expander("Foto of handmatige invoer gebruiken"):
+            camera = st.camera_input(
+                "Barcode fotograferen",
+                key=f"mobile_stock_camera_{generation}",
+                help="Zorg dat één barcode groot, recht en scherp in beeld staat.",
+            )
+            if camera is not None:
+                digest = hashlib.sha256(camera.getvalue()).hexdigest()
+                if digest != st.session_state.get("mobile_stock_camera_digest"):
+                    try:
+                        decoded = decode_barcode_image(camera)
+                        st.session_state["mobile_stock_barcode"] = decoded
+                        st.session_state["mobile_stock_camera_digest"] = digest
+                        st.session_state.pop("mobile_stock_target", None)
+                        auto_lookup = True
+                    except Exception as exc:
+                        st.error(str(exc))
+
+        with st.form("mobile_stock_lookup_form"):
+            barcode = st.text_input(
+                "Barcode",
+                placeholder="Scan met camera/scanner of typ de EAN",
+                key="mobile_stock_barcode",
+            ).strip()
+            lookup = st.form_submit_button("Product ophalen", width="stretch")
+        if (lookup or auto_lookup) and barcode:
+            try:
+                with st.spinner("Voorraadkoppeling controleren…"):
+                    st.session_state["mobile_stock_target"] = resolve_barcode_stock_target(barcode)
+                st.session_state.pop("mobile_stock_unknown_barcode", None)
+                st.session_state.pop("mobile_stock_link_candidate", None)
+            except Exception as exc:
+                st.session_state.pop("mobile_stock_target", None)
+                message = str(exc)
+                if "is niet in Shopify gevonden" in message:
+                    st.session_state["mobile_stock_unknown_barcode"] = barcode.replace(" ", "")
+                else:
+                    st.session_state.pop("mobile_stock_unknown_barcode", None)
+                st.error(message)
+
+        target = st.session_state.get("mobile_stock_target")
+        if not isinstance(target, StockCountTarget):
+            unknown = str(st.session_state.get("mobile_stock_unknown_barcode") or "")
+            if unknown and unknown == barcode.replace(" ", ""):
+                st.warning(f"Barcode `{unknown}` is onbekend. Koppel hem alleen aan het exacte Shopify-SKU.")
+                with st.form("mobile_stock_barcode_link_lookup"):
+                    link_sku = st.text_input(
+                        "Shopify-SKU op het artikel of de doos",
+                        placeholder="Bijvoorbeeld 304003",
+                        key="mobile_stock_link_sku",
+                    ).strip()
+                    find_candidate = st.form_submit_button(
+                        "SKU controleren", width="stretch"
+                    )
+                if find_candidate:
+                    try:
+                        with st.spinner("Barcode en SKU veilig controleren…"):
+                            st.session_state.pop("mobile_stock_link_confirm", None)
+                            st.session_state["mobile_stock_link_candidate"] = (
+                                lookup_barcode_link_candidate(
+                                    unknown, link_sku, allow_replace=True,
+                                )
+                            )
+                    except Exception as exc:
+                        st.session_state.pop("mobile_stock_link_candidate", None)
+                        st.error(str(exc))
+
+                candidate = st.session_state.get("mobile_stock_link_candidate")
+                if isinstance(candidate, BarcodeLinkCandidate):
+                    if (candidate.barcode != unknown
+                            or candidate.variant_sku.casefold() != str(
+                                st.session_state.get("mobile_stock_link_sku") or ""
+                            ).strip().casefold()):
+                        st.info("Barcode of SKU is gewijzigd. Controleer de SKU opnieuw.")
+                    else:
+                        if candidate.product_image_url:
+                            st.image(candidate.product_image_url, width=180)
+                        st.markdown(f"**{candidate.product_title}**")
+                        st.write(
+                            f"Leverancier: {candidate.product_vendor or 'onbekend'}  \n"
+                            f"Variant: `{candidate.variant_sku}` · {candidate.variant_title}  \n"
+                            f"Voorraadartikel: `{candidate.target_sku}` · "
+                            f"factor **{candidate.units_per_scan}**"
+                        )
+                        replacing = bool(candidate.current_barcode)
+                        if replacing:
+                            st.error(
+                                "Deze SKU heeft al een barcode. Bij opslaan wordt de oude "
+                                "barcode vervangen en kan die daarna niet meer worden gescand."
+                            )
+                            st.write(
+                                f"Huidige barcode: `{candidate.current_barcode}`  \n"
+                                f"Nieuwe barcode: `{candidate.barcode}`"
+                            )
+                        link_confirmed = st.checkbox(
+                            (
+                                f"Ik bevestig dat barcode {candidate.current_barcode} van "
+                                f"SKU {candidate.variant_sku} mag worden vervangen door "
+                                f"{candidate.barcode}."
+                                if replacing else
+                                f"Ik bevestig dat barcode {candidate.barcode} fysiek hoort bij "
+                                f"SKU {candidate.variant_sku}."
+                            ),
+                            key="mobile_stock_link_confirm",
+                        )
+                        if st.button(
+                            (
+                                "Bestaande barcode vervangen"
+                                if replacing else "Barcode aan Shopify koppelen"
+                            ),
+                            type="primary",
+                            disabled=not link_confirmed,
+                            width="stretch",
+                            key="mobile_stock_link_save",
+                        ):
+                            try:
+                                with st.spinner("Barcode opslaan en teruglezen…"):
+                                    linked_target = add_barcode_to_variant(
+                                        candidate, replace_existing=replacing,
+                                    )
+                                st.session_state["mobile_stock_target"] = linked_target
+                                st.session_state.pop("mobile_stock_unknown_barcode", None)
+                                st.session_state.pop("mobile_stock_link_candidate", None)
+                                st.session_state["mobile_stock_last_success"] = (
+                                    (
+                                        f"Barcode {candidate.current_barcode} is vervangen door "
+                                        f"{candidate.barcode} voor {candidate.variant_sku}."
+                                        if replacing else
+                                        f"Barcode {candidate.barcode} is gekoppeld aan "
+                                        f"{candidate.variant_sku}."
+                                    )
+                                )
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Barcode is niet gekoppeld: {exc}")
+            return
+        if target.barcode != barcode.replace(" ", ""):
+            st.info("De barcode is gewijzigd. Tik op ‘Product ophalen’ om opnieuw te controleren.")
+            return
+
+        image_column, detail_column = st.columns([1, 2])
+        with image_column:
+            if target.product_image_url:
+                st.image(target.product_image_url, width="stretch")
+        with detail_column:
+            st.markdown(f"**{target.product_title}**")
+            st.write(f"Gescand: `{target.scanned_sku}` · {target.scanned_title}")
+            if target.stock_model == "component_bundle":
+                st.write(
+                    f"Voorraadartikel: `{target.target_sku}` · "
+                    f"{target.units_per_scan} stuk(s) per scan-eenheid"
+                )
+            else:
+                st.write(f"Voorraadartikel: `{target.target_sku}`")
+            st.metric("Huidige voorraad in stuks", target.target_inventory_quantity)
+
+        mode_label = st.radio(
+            "Wat wil je met dit getelde aantal doen?",
+            ["Toevoegen aan huidige voorraad", "Totaalvoorraad instellen"],
+            horizontal=True,
+            key="mobile_stock_mode",
+        )
+        add_mode = mode_label.startswith("Toevoegen")
+        mode = "add" if add_mode else "total"
+
+        if target.units_per_scan > 1:
+            package_count = st.number_input(
+                (
+                    f"Aantal verpakkingen van {target.units_per_scan} toevoegen"
+                    if add_mode else
+                    f"Totaal aantal gesloten verpakkingen van {target.units_per_scan}"
+                ),
+                min_value=0,
+                max_value=100000,
+                value=1 if add_mode else 0,
+                step=1,
+                key=(
+                    "mobile_stock_add_packages" if add_mode
+                    else "mobile_stock_total_packages"
+                ),
+            )
+            loose_count = st.number_input(
+                "Losse stuks toevoegen" if add_mode else "Aantal losse stuks daarnaast",
+                min_value=0,
+                max_value=max(0, target.units_per_scan - 1),
+                value=0,
+                step=1,
+                key=(
+                    "mobile_stock_add_loose" if add_mode
+                    else "mobile_stock_total_loose"
+                ),
+            )
+            counted_units = int(package_count)
+            loose_units = int(loose_count)
+            new_quantity = calculate_component_quantity(
+                counted_units=counted_units,
+                units_per_scan=target.units_per_scan,
+                loose_units=loose_units,
+            )
+            if add_mode:
+                resulting_quantity = target.target_inventory_quantity + new_quantity
+                st.info(
+                    f"Toevoeging: {counted_units} × {target.units_per_scan} + "
+                    f"{loose_units} = **{new_quantity} stuks erbij**"
+                )
+            else:
+                resulting_quantity = new_quantity
+                st.info(
+                    f"Totaal: {counted_units} × {target.units_per_scan} + "
+                    f"{loose_units} = **{new_quantity} stuks**"
+                )
+        else:
+            pieces = st.number_input(
+                "Aantal stuks toevoegen" if add_mode else "Werkelijk geteld totaal aantal stuks",
+                min_value=0,
+                max_value=100000,
+                value=1 if add_mode else target.target_inventory_quantity,
+                step=1,
+                key=(
+                    "mobile_stock_add_pieces" if add_mode
+                    else "mobile_stock_total_pieces"
+                ),
+            )
+            counted_units = int(pieces)
+            loose_units = 0
+            new_quantity = counted_units
+            resulting_quantity = (
+                target.target_inventory_quantity + new_quantity
+                if add_mode else new_quantity
+            )
+
+        st.write(
+            f"Shopify wordt gewijzigd van **{target.target_inventory_quantity}** "
+            f"naar **{resulting_quantity}** stuks."
+        )
+        confirmed = st.checkbox(
+            (
+                f"Ik bevestig dat {new_quantity} stuks aan de voorraad mogen worden toegevoegd."
+                if add_mode else
+                "Ik heb de fysieke voorraad geteld en bevestig dit nieuwe totaal."
+            ),
+            key="mobile_stock_confirm",
+        )
+        if st.button(
+            "Voorraad toevoegen" if add_mode else "Totaalvoorraad definitief opslaan",
+            type="primary",
+            disabled=not confirmed,
+            width="stretch",
+            key="mobile_stock_save",
+        ):
+            try:
+                with st.spinner("Voorraad opslaan en teruglezen…"):
+                    result = set_counted_stock(
+                        target,
+                        counted_units=counted_units,
+                        loose_units=loose_units,
+                        mode=mode,
+                    )
+                st.session_state["mobile_stock_last_success"] = (
+                    f"{target.product_title} · {target.target_sku}: "
+                    + (
+                        f"{result['entered_quantity']} stuks toegevoegd; "
+                        if add_mode else "totaalvoorraad opgeslagen; "
+                    )
+                    + f"nieuwe voorraad {result['confirmed_quantity']} stuks."
+                )
+                st.session_state["mobile_stock_reset_after_save"] = True
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Voorraad is niet opgeslagen: {exc}")
+        st.button(
+            "Andere barcode scannen",
+            on_click=_reset_mobile_stock_count,
+            width="stretch",
+            key="mobile_stock_reset",
+        )
 
 
 

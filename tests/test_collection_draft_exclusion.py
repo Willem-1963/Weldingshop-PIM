@@ -14,7 +14,7 @@ def test_all_pages_drafted_and_existing_drafts_preserved():
                 'pageInfo': {'hasNextPage': not bool(after), 'endCursor': 'page2'},
             }}}
     client = Client()
-    supplier = {'request_options': {'continue_selling_collection_rules': [{'collection_id': 'gas', 'exclude': True}]}}
+    supplier = {'request_options': {'allow_shopify_status_demotion': True, 'continue_selling_collection_rules': [{'collection_id': 'gas', 'exclude': True}]}}
     assert _draft_excluded_collections(client, supplier) == {'first', 'second'}
     assert client.writes == ['first']
 

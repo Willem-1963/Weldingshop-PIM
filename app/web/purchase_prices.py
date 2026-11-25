@@ -4,7 +4,7 @@ import streamlit as st
 from app.suppliers.discounts import (
     apply_mapped_purchase_costs, discount_product_options, release_manual_purchase_cost, save_manual_purchase_cost,
 )
-from app.suppliers.hub import get_supplier_product
+from app.suppliers.hub import get_supplier_product, save_manual_product_units
 
 
 def render_manual_purchase_price(slug: str, source_field: str = '') -> None:
@@ -34,6 +34,40 @@ def render_manual_purchase_price(slug: str, source_field: str = '') -> None:
     if not product:
         st.info('Dit artikel is niet meer beschikbaar. Vernieuw de pagina.')
         return
+
+    with st.expander('Inkoop- en verkoopeenheid aanpassen', expanded=False):
+        st.caption('Deze waarden worden duurzaam in PIM opgeslagen en blijven bij een nieuwe leveranciersimport behouden.')
+        with st.form(f'manual_product_units_{slug}_{sku}'):
+            unit_columns = st.columns(2)
+            edited_purchase_unit = unit_columns[0].text_input(
+                'Inkoopeenheid', value=str(product.get('purchase_unit') or 'stuk'))
+            edited_sales_unit = unit_columns[1].text_input(
+                'Verkoopeenheid', value=str(product.get('sales_unit') or 'stuk'))
+            factor_columns = st.columns(2)
+            edited_factor = factor_columns[0].number_input(
+                'Inkoopeenheden per verkoopeenheid', min_value=0.000001,
+                value=float(product.get('purchase_units_per_sales_unit') or 1),
+                format='%.6f')
+            current_mode = str(product.get('unit_calculation_mode') or 'multiply')
+            edited_mode = factor_columns[1].selectbox(
+                'Rekenwijze', ['multiply', 'divide'],
+                index=1 if current_mode == 'divide' else 0)
+            save_units = st.form_submit_button('Eenheden opslaan in PIM', type='primary')
+        if save_units:
+            try:
+                saved_units = save_manual_product_units(
+                    slug, sku, purchase_unit=edited_purchase_unit,
+                    sales_unit=edited_sales_unit,
+                    purchase_units_per_sales_unit=edited_factor,
+                    unit_calculation_mode=edited_mode)
+                st.session_state[flash_key] = (
+                    f"Eenheden voor {sku} opgeslagen: "
+                    f"{saved_units['purchase_unit']} → {saved_units['sales_unit']} "
+                    f"(factor {saved_units['purchase_units_per_sales_unit']}).")
+                st.rerun()
+            except (ValueError, RuntimeError) as exc:
+                st.error(str(exc))
+
     unit = product.get('sales_unit') or 'stuk'
     current = product.get('cost_price')
     manual = (product.get('raw_data') or {}).get('manual_purchase_price')

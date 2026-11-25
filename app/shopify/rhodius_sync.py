@@ -82,6 +82,15 @@ def plan_existing_units(products: list[dict], existing: dict) -> dict:
         values = list(variants.values())
         for offset in range(0, len(values), 100):
             rows.append({"productId": product_id, "variants": values[offset:offset + 100]})
+    missing = sorted(set(missing))
+    missing_piece_units = [sku for sku in missing if sku.endswith("-STUK")]
+    missing_package_units = [sku for sku in missing if not sku.endswith("-STUK")]
     return {"rows": rows, "units": units, "warnings": warnings,
             "missing_units": missing,
+            "unit_completeness": {
+                "missing_piece_units": missing_piece_units,
+                "missing_package_units": missing_package_units,
+                "missing_piece_count": len(missing_piece_units),
+                "missing_package_count": len(missing_package_units),
+            },
             "protected_stock_skus": sorted(sku for sku in existing if sku.endswith("-STOCK"))}

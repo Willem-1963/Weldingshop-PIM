@@ -84,3 +84,174 @@ def test_valkenpower_incomplete_product_is_isolated_until_breadcrumb_exists():
     assert "officiële Valkenpower-breadcrumb ontbreekt" in (
         _common_product_content_errors(product)
     )
+
+
+def test_putkrik_gets_durable_new_taxonomy_without_breadcrumb(tmp_path, monkeypatch):
+    database = tmp_path / "valkenpower.sqlite"
+    create_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO products VALUES(
+               'VP-PK20LMEK','PK20LMEK',1,'Valkenpower','Falco',
+               ?,?,
+               '','','','','[]','','','','','','[\"Valkenpower\"]','{}','')""",
+            (
+                "Falco accu putkrik 20 ton medium inclusief accu's",
+                "Officiële productomschrijving. " * 20,
+            ),
+        )
+    monkeypatch.setattr(preparation, "init_supplier_database", lambda slug: database)
+
+    result = preparation.prepare_valkenpower_products_for_sync()
+
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        row = dict(connection.execute(
+            "SELECT * FROM products WHERE sku='VP-PK20LMEK'"
+        ).fetchone())
+        values = json.loads(connection.execute(
+            "SELECT values_json FROM category_import_locks WHERE sku='VP-PK20LMEK'"
+        ).fetchone()[0])
+    assert result["automatic_category_locks"] == 1
+    assert row["product_group_name"] == "Werkplaatsuitrusting"
+    assert row["execution"] == "Putkrikken"
+    assert json.loads(row["filter_values_json"]) == [
+        "Brugkrikken en putkrikken"
+    ]
+    assert values["productsoort"] == "Brugkrikken en putkrikken"
+    assert "cat-hefbruggen" in values["collection_tags_json"]
+    assert "ws-tax-hefbruggen" in values["collection_tags_json"]
+    assert json.loads(row["raw_data_json"])["category_file_import"]["locked"] is True
+
+
+def test_knee_protection_gets_approved_pbm_taxonomy(tmp_path, monkeypatch):
+    database = tmp_path / "valkenpower.sqlite"
+    create_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO products VALUES(
+               'VP-KP012G','KP012G',1,'Valkenpower','Bullram',
+               ?,?,
+               '','','','','[]','','','','','','[\"Valkenpower\"]','{}','')""",
+            (
+                "Bullram kniebeschermers met gelkussens",
+                "Officiële productomschrijving. " * 20,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO official_category_evidence VALUES(
+               'KP012G','confirmed',
+               '["Werkplaatsuitrusting","Monteurskrukken en bedden"]',
+               'https://www.valkenpower.com/product','KP012G',
+               'exact_supplier_sku','2026-10-09T00:00:00+00:00')"""
+        )
+    monkeypatch.setattr(preparation, "init_supplier_database", lambda slug: database)
+
+    result = preparation.prepare_valkenpower_products_for_sync()
+
+    with sqlite3.connect(database) as connection:
+        values, provenance = connection.execute(
+            """SELECT values_json,provenance_json FROM category_import_locks
+                 WHERE sku='VP-KP012G'"""
+        ).fetchone()
+    values = json.loads(values)
+    assert result["automatic_rule_locks"] == 1
+    assert values["product_group_name"] == "PBM"
+    assert values["execution"] == "Kniebescherming en kniestukken"
+    assert values["productsoort"] == "Kniebescherming"
+    assert "cat-pbm-voetbescherming-kniebescherming" in values[
+        "collection_tags_json"
+    ]
+    assert json.loads(provenance)["method"] == (
+        "valkenpower-knee-protection-title-rule-v1"
+    )
+
+
+def test_exact_official_hierarchy_inherits_one_unanimous_new_route(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "valkenpower.sqlite"
+    create_database(database)
+    inherited_values = {
+        "product_group_name": "Werkplaatsinrichting",
+        "filter_values_json": ["Gereedschapskisten"],
+        "execution": "Gereedschapskisten",
+        "subcategory_3": "",
+        "subcategory_4": "",
+        "subcategory_5": "",
+        "productsoort": "Gereedschapskist",
+        "collection_tags_json": [
+            "cat-gereedschap", "cat-werkplaatsinrichting",
+            "filter-productsoort-gereedschapskist",
+        ],
+    }
+    with sqlite3.connect(database) as connection:
+        preparation.install_category_locks(connection, [{
+            "sku": "VP-TBP03L",
+            "provenance": {"method": "approved-test", "values": inherited_values},
+        }])
+        connection.execute(
+            """INSERT INTO products VALUES(
+               'VP-TBP04L','TBP04L',1,'Valkenpower','Fluxon',
+               ?,?,'','','','','[]','','','','','','[\"Valkenpower\"]','{}','')""",
+            ("Fluxon gereedschapskist", "Officiële productomschrijving. " * 20),
+        )
+        connection.execute(
+            """INSERT INTO official_category_evidence VALUES(
+               'TBP04L','confirmed',
+               '["Werkplaatsuitrusting","Werkplaatsinrichting","Gereedschapskisten"]',
+               'https://www.valkenpower.com/product','TBP04L',
+               'exact_supplier_sku','2026-10-09T00:00:00+00:00')"""
+        )
+    monkeypatch.setattr(preparation, "init_supplier_database", lambda slug: database)
+
+    result = preparation.prepare_valkenpower_products_for_sync()
+
+    with sqlite3.connect(database) as connection:
+        values, provenance = connection.execute(
+            """SELECT values_json,provenance_json FROM category_import_locks
+                 WHERE sku='VP-TBP04L'"""
+        ).fetchone()
+    assert result["automatic_inherited_locks"] == 1
+    assert json.loads(values) == inherited_values
+    assert json.loads(provenance)["template_sku"] == "VP-TBP03L"
+
+
+def test_unknown_category_is_queued_instead_of_guessed(tmp_path, monkeypatch):
+    database = tmp_path / "valkenpower.sqlite"
+    create_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO products VALUES(
+               'VP-UNKNOWN','UNKNOWN',1,'Valkenpower','Valkenpower',
+               ?,?,'','','','','[]','','','','','','[\"Valkenpower\"]','{}','')""",
+            ("Volledig nieuw product", "Officiële productomschrijving. " * 20),
+        )
+        connection.execute(
+            """INSERT INTO official_category_evidence VALUES(
+               'UNKNOWN','confirmed','["Nieuwe hoofdgroep","Nieuwe categorie"]',
+               'https://www.valkenpower.com/product','UNKNOWN',
+               'exact_supplier_sku','2026-10-09T00:00:00+00:00')"""
+        )
+    monkeypatch.setattr(preparation, "init_supplier_database", lambda slug: database)
+
+    result = preparation.prepare_valkenpower_products_for_sync()
+
+    with sqlite3.connect(database) as connection:
+        queued = connection.execute(
+            """SELECT reason,status FROM valkenpower_category_review_queue
+                 WHERE sku='VP-UNKNOWN'"""
+        ).fetchone()
+        lock_table = connection.execute(
+            """SELECT 1 FROM sqlite_master
+                 WHERE type='table' AND name='category_import_locks'"""
+        ).fetchone()
+        locked = (
+            connection.execute(
+                "SELECT 1 FROM category_import_locks WHERE sku='VP-UNKNOWN'"
+            ).fetchone()
+            if lock_table else None
+        )
+    assert result["category_review_pending"] >= 1
+    assert queued == ("no_unanimous_approved_new_taxonomy_template", "pending")
+    assert locked is None

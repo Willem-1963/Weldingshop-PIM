@@ -27,6 +27,7 @@ SALES_RULE_TYPES = {
     "discount_from_cost": "Klantkorting als percentage van netto inkoopprijs",
     "max_discount_over_discount": "Deel van onze leverancierskorting doorgeven",
     "markup_on_cost": "Vaste opslag per product (%) op netto inkoopprijs",
+    "minimum_markup_on_cost": "Minimale opslag op netto inkoopprijs",
     "gross_margin": "Gewenste brutomarge",
     "fixed_markup": "Vaste opslag per product (€) op netto inkoopprijs",
     "fixed_price": "Vaste verkoopprijs (€)",
@@ -450,6 +451,44 @@ def apply_purchase_costs(slug: str) -> dict[str, int]:
     return {"updated": updated, "skipped": skipped}
 
 
+def sales_price_calculation(
+    gross: Any, cost: Any, value: float, rule_type: str, result: Any,
+    *, underlying_result: Any = None,
+) -> str:
+    """Describe the actual price rule without changing its calculation."""
+    def money(number: Any) -> str:
+        return "€ " + f"{float(number):.2f}".replace(".", ",")
+    percentage = f"{float(value):g}".replace(".", ",")
+    if result is None:
+        return "Geen berekening mogelijk: prijsgrondslag ontbreekt of geen passende regel."
+    if rule_type == "fixed_price":
+        return f"Vaste verkoopprijs: {money(result)}"
+    if rule_type == "none":
+        return f"Bestaande bronprijs behouden: {money(result)}"
+    if cost is None:
+        return "Netto inkoopprijs ontbreekt."
+    if rule_type == "max_discount_over_discount" and gross is not None:
+        discount = max(0, float(gross) - float(cost))
+        return (f"Leverancierskorting: {money(gross)} − {money(cost)} = {money(discount)}; "
+                f"klantkorting: {percentage}% × {money(discount)} = {money(discount * value / 100)}; "
+                f"verkoopprijs: {money(result)}")
+    if rule_type == "markup_on_cost":
+        return f"{money(cost)} × (1 + {percentage}%) = {money(result)}"
+    if rule_type == "minimum_markup_on_cost":
+        return (
+            f"Bestaande verkoopprijs behouden, minimaal {money(cost)} × "
+            f"(1 + {percentage}%) = {money(result)}"
+        )
+    if rule_type == "gross_margin":
+        return f"{money(cost)} ÷ (1 − {percentage}%) = {money(result)}"
+    if rule_type == "fixed_markup":
+        base = underlying_result if underlying_result is not None else cost
+        return f"{money(base)} + {money(value)} = {money(result)}"
+    if gross is not None:
+        return f"{money(gross)} − ({money(cost)} × {percentage}%) = {money(result)}"
+    return "Bruto prijs ontbreekt."
+
+
 def preview_sales_prices(
     slug: str, max_discount_percent: float | None = None,
     limit: int | None = 500, rule_type: str | None = None,
@@ -574,7 +613,8 @@ def preview_sales_prices(
                 round(float(current_base) + surcharge, 2)
                 if effective_type == "none" and current_base is not None else
                 _calculated_sales_price(
-                    effective_gross, cost, effective_value, effective_type
+                    effective_gross, cost, effective_value, effective_type,
+                    current_price=current_base,
                 )
             )
         calculated_base = (
@@ -585,6 +625,17 @@ def preview_sales_prices(
             round(float(effective_gross) - float(calculated), 2)
             if calculated is not None and effective_gross is not None else None
         )
+        calculation = sales_price_calculation(
+            effective_gross, cost, effective_value, effective_type, calculated,
+            underlying_result=underlying_base if underlying_rule else None,
+        )
+        if underlying_rule:
+            calculation = sales_price_calculation(
+                effective_gross, cost, float(underlying_rule["rule_value"]),
+                underlying_rule["rule_type"], underlying_base,
+            ) + "; vaste opslag: " + calculation
+        if surcharge:
+            calculation = f"Legeringstoeslag {surcharge:.2f} EUR inbegrepen in bruto en netto grondslag; " + calculation
         preview_row = {
             "SKU": product["sku"],
             "Product": product.get("source_title") or "",
@@ -620,6 +671,7 @@ def preview_sales_prices(
             "Berekende basisverkoopprijs": calculated_base,
             "Berekende verkoopprijs": calculated,
             "Huidige verkoopprijs": product.get("sale_price"),
+            "Prijsberekening": calculation,
         })
         result.append(preview_row)
     return result
@@ -627,7 +679,7 @@ def preview_sales_prices(
 
 def _calculated_sales_price(
     gross: Any, cost: Any, value: float,
-    rule_type: str = "discount_from_cost",
+    rule_type: str = "discount_from_cost", *, current_price: Any = None,
 ) -> float | None:
     if rule_type == "fixed_price":
         return round(max(0, float(value)), 2)
@@ -638,7 +690,17 @@ def _calculated_sales_price(
         return None
     gross_value = float(gross) if gross is not None else None
     if rule_type == "markup_on_cost":
-        result = cost_value * (1 + value / 100)
+        # Financial prices use decimal half-up rounding; binary floats plus
+        # Python's banker rounding caused one-cent drift at x.xx5 values.
+        result = (
+            Decimal(str(cost))
+            * (Decimal("1") + Decimal(str(value)) / Decimal("100"))
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return float(result)
+    elif rule_type == "minimum_markup_on_cost":
+        floor = cost_value * (1 + value / 100)
+        current = float(current_price) if current_price is not None else 0.0
+        result = max(current, floor)
     elif rule_type == "max_discount_over_discount":
         if gross_value is None or gross_value <= 0:
             return None

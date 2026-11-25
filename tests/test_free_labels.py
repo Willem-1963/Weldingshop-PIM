@@ -39,7 +39,9 @@ with patch.object(label_page, "get_active_template", return_value=""), patch.obj
     label_page.show_label_page()
 ''').run()
     assert not app.exception
-    assert [tab.label for tab in app.tabs] == ["Productlabels", "Vrije labels", "Mobiel"]
+    assert [tab.label for tab in app.tabs] == [
+        "Productlabels", "Vrije labels", "Mobiel", "Voorraad tellen",
+    ]
     app.text_input(key="free_label_1_text").set_value("Magazijn")
     app.number_input(key="free_label_1_size").set_value(24)
     app.selectbox(key="free_label_1_alignment").set_value("Rechts").run()

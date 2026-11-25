@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 from app.social import facebook as fb
 
@@ -67,6 +68,38 @@ class FacebookBlogTests(unittest.TestCase):
         self.assertFalse(config["enabled"])
         self.assertNotIn("token_encrypted", config)
         self.assertNotIn("a" * 80, str(fb.history()))
+
+    def test_oauth_login_url_has_single_use_state_and_requested_permissions(self):
+        with patch.dict(fb.os.environ, {
+            "FACEBOOK_APP_ID": "app-id", "FACEBOOK_APP_SECRET": "app-secret",
+            "FACEBOOK_OAUTH_REDIRECT_URI": "https://pim.example/?section=facebook",
+        }, clear=False):
+            url = fb.begin_oauth_connection()
+        query = parse_qs(urlsplit(url).query)
+        self.assertEqual(query["client_id"], ["app-id"])
+        self.assertEqual(query["scope"], [fb.OAUTH_SCOPES])
+        self.assertTrue(query["state"][0])
+        with fb.connect() as db:
+            self.assertIsNotNone(db.execute("SELECT 1 FROM oauth_states WHERE state=?", (query["state"][0],)).fetchone())
+
+    def test_oauth_callback_exchanges_for_page_token_and_consumes_state(self):
+        settings = {
+            "FACEBOOK_APP_ID": "app-id", "FACEBOOK_APP_SECRET": "app-secret",
+            "FACEBOOK_OAUTH_REDIRECT_URI": "https://pim.example/?section=facebook",
+        }
+        with patch.dict(fb.os.environ, settings, clear=False):
+            state = parse_qs(urlsplit(fb.begin_oauth_connection()).query)["state"][0]
+            with patch.object(fb, "_oauth_get", side_effect=[
+                {"access_token": "short"}, {"access_token": "long"},
+            ]), patch.object(fb, "MetaClient") as client, patch.object(fb, "save_connection") as save:
+                client.return_value.request.return_value = {"data": [{
+                    "id": fb.PAGE_ID, "name": "Weldingshop blog post", "access_token": "page-token",
+                }]}
+                self.assertEqual(fb.complete_oauth_connection(state, "code"), "Weldingshop blog post")
+        save.assert_called_once_with("page-token")
+        with self.assertRaisesRegex(ValueError, "verlopen"):
+            with patch.dict(fb.os.environ, settings, clear=False):
+                fb.complete_oauth_connection(state, "code")
 
     def test_attachment_without_message_detected(self):
         a = article()
@@ -178,6 +211,17 @@ class FacebookBlogTests(unittest.TestCase):
             self.assertEqual(fb.preview()["article"]["id"], "1")
             cls.return_value.publish.assert_not_called()
 
+    def test_publish_preview_allows_multiple_manual_posts_on_one_day(self):
+        a, next_a = article(), article(2, "Een tweede blogbericht")
+        self.enable()
+        with patch.object(fb, "fetch_articles", return_value=[a, next_a]), patch.object(fb, "MetaClient") as cls:
+            meta = cls.return_value
+            meta.all_posts.return_value = []
+            meta.publish.side_effect = [{"id": "manual-1"}, {"id": "manual-2"}]
+            self.assertEqual(fb.publish_preview(NOW)["status"], "geplaatst")
+            self.assertEqual(fb.publish_preview(NOW)["status"], "geplaatst")
+            self.assertEqual([call.args[0]["id"] for call in meta.publish.call_args_list], ["1", "2"])
+
     def test_backfill_disabled_excludes_old_articles(self):
         self.enable()
         fb.save_planning(True, "10:00", False)
@@ -203,6 +247,22 @@ class FacebookBlogTests(unittest.TestCase):
             self.assertNotIn("secret", str(error.exception))
             self.assertEqual(request.call_args.kwargs["headers"]["Authorization"], "Bearer secret")
 
+    def test_publish_uses_large_photo_post_with_text_and_article_link(self):
+        meta = fb.MetaClient("secret")
+        response = Mock(ok=True)
+        response.json.return_value = {"id": "photo"}
+        with patch.object(fb.requests, "request", return_value=response) as request:
+            meta.publish({**article(), "image": {"url": "https://cdn.example/image.jpg"}})
+        self.assertEqual(request.call_args.args[:2], ("POST", f"https://graph.facebook.com/{fb.GRAPH_VERSION}/{fb.PAGE_ID}/photos"))
+        self.assertEqual(request.call_args.kwargs["data"], {
+            "url": "https://cdn.example/image.jpg",
+            "caption": article()["message"],
+        })
+
+    def test_publish_rejects_article_without_image_to_keep_format_consistent(self):
+        with self.assertRaisesRegex(fb.MetaError, "geen omslagafbeelding"):
+            fb.MetaClient("secret").publish(article())
+
     def test_articles_are_published_news_only_and_all_pages_read(self):
         client = Mock()
         base = dict(article(), summary="Een uitleg", image=None, isPublished=True,
@@ -216,6 +276,17 @@ class FacebookBlogTests(unittest.TestCase):
         ]
         self.assertEqual([r["id"] for r in fb.fetch_articles(client, NOW)], ["1"])
         self.assertEqual(client.graphql.call_args.args[1], {"after": "x"})
+
+    def test_article_message_contains_only_the_specific_article_link(self):
+        client = Mock()
+        base = dict(article(), summary="Een uitleg", image=None, isPublished=True,
+                    handle="artikel-1", blog={"handle": "news"})
+        client.graphql.return_value = {
+            "articles": {"nodes": [base], "pageInfo": {"hasNextPage": False}}
+        }
+        message = fb.fetch_articles(client, NOW)[0]["message"]
+        self.assertIn("Lees het volledige artikel: https://www.weldingshop.nl/blogs/news/artikel-1", message)
+        self.assertNotIn("op Weldingshop.nl", message)
 
 
 if __name__ == "__main__":

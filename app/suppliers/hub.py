@@ -2336,11 +2336,59 @@ CERTILAS_CONFIRMED_PACKAGE_WEIGHTS = {
     "8720663416452": 2.5,
     # CroNiMo HLS 4,0 x 450 mm; confirmed from barcode by the product owner.
     "8720663416469": 2.5,
+    # E Corten 4,0 x 450 mm; tijdelijke eigenaarsbevestiging 2026-10-10.
+    "8720682051030": 2.8,
 }
 
 
 def _certilas_confirmed_package_weight(ean: str) -> float | None:
     return CERTILAS_CONFIRMED_PACKAGE_WEIGHTS.get(_ean(ean))
+
+
+def _certilas_database_package_weight(
+    connection: sqlite3.Connection, sku: str, ean: str,
+) -> float | None:
+    """Load an EAN-pinned operator-confirmed pack weight from PIM data."""
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='certilas_pack_overrides'"
+    ).fetchone()
+    if not exists:
+        return None
+    row = connection.execute(
+        "SELECT rule_json FROM certilas_pack_overrides WHERE sku=?", (sku,)
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        rule = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Certilas {sku}: ongeldige packoverride.") from exc
+    if str(rule.get("ean") or "") != str(ean or ""):
+        raise ValueError(f"Certilas {sku}: packoverride heeft afwijkend EAN.")
+    try:
+        weight = float(rule.get("kg_per_pack") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Certilas {sku}: ongeldige packoverride.") from exc
+    if not math.isfinite(weight) or weight <= 0:
+        raise ValueError(f"Certilas {sku}: ongeldige packoverride.")
+    return weight
+
+
+def _certilas_price_per_kg(
+    value: Any, purchase_unit: str,
+) -> float | None:
+    """Normalize Certilas dealer prices to the PIM's EUR/kg contract.
+
+    Certilas normally supplies prices per kilogram. A small minority is
+    explicitly priced per gram (``P.u. = Gr``), while the dealer export still
+    exposes those values under the generic price-per-kg column headings.
+    """
+    price = _float(value)
+    unit = re.sub(r"[^a-z]", "", _text(purchase_unit).casefold())
+    if price is not None and unit in {"g", "gr", "gram", "grams"}:
+        return round(price * 1000, 6)
+    return price
 
 
 def _sku_with_prefix(supplier_sku: str, prefix: str) -> str:
@@ -2909,6 +2957,21 @@ def remove_rejected_supplier_images(slug: str) -> dict[str, int]:
     return {"checked": len(rows), "rejected": len(rejected_ids)}
 
 
+def _is_invoice_managed_product(raw_data_json: str) -> bool:
+    """Keep exact invoice-linked products active when absent from a source file."""
+    try:
+        raw = json.loads(raw_data_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return (
+        str((raw.get("invoice_catalog") or {}).get("source") or "")
+        == "linked_purchase_invoice"
+        or str((raw.get("invoice_import") or {}).get("source") or "")
+        == "purchase_invoice"
+        or str(raw.get("source") or "") == "linked_purchase_invoice"
+    )
+
+
 def import_records(
     slug: str,
     analysis: SourceAnalysis,
@@ -2958,8 +3021,16 @@ def import_records(
                 source_price_value(record.get(field_map["cost_price"]))
                 if field_map.get("cost_price") else None
             )
+            purchase_unit = (
+                _text(record.get(field_map["purchase_unit"])) or "stuk"
+                if field_map.get("purchase_unit") else "stuk"
+            )
+            price_per_kg = (
+                lambda value: _certilas_price_per_kg(value, purchase_unit)
+                if route.uses_certilas_filters else _float(value)
+            )
             gross_purchase_price_per_kg = (
-                _float(record.get(field_map["gross_purchase_price_per_kg"]))
+                price_per_kg(record.get(field_map["gross_purchase_price_per_kg"]))
                 if field_map.get("gross_purchase_price_per_kg") else None
             )
             purchase_discount_percent = (
@@ -2967,7 +3038,7 @@ def import_records(
                 if field_map.get("purchase_discount_percent") else None
             )
             net_purchase_price_per_kg = (
-                _float(record.get(field_map["net_purchase_price_per_kg"]))
+                price_per_kg(record.get(field_map["net_purchase_price_per_kg"]))
                 if field_map.get("net_purchase_price_per_kg") else None
             )
             if (
@@ -2988,12 +3059,18 @@ def import_records(
                 if field_map.get("kg_per_sales_unit") else None
             )
             if route.uses_certilas_filters:
-                confirmed_weight = _certilas_confirmed_package_weight(
-                    record.get(field_map["ean"])
+                record_ean = _ean(record.get(field_map["ean"]))
+                confirmed_weight = _certilas_confirmed_package_weight(record_ean)
+                database_weight = _certilas_database_package_weight(
+                    conn, sku, record_ean
                 )
-                if confirmed_weight is not None:
-                    kg_per_purchase_unit = confirmed_weight
-                    kg_per_sales_unit = confirmed_weight
+                effective_weight = (
+                    database_weight
+                    if database_weight is not None else confirmed_weight
+                )
+                if effective_weight is not None:
+                    kg_per_purchase_unit = effective_weight
+                    kg_per_sales_unit = effective_weight
             # De verkoopprijsbasis is altijd één verpakking. Een bundel/omdoos
             # kan later uit meerdere van deze verkoopverpakkingen bestaan.
             if kg_per_purchase_unit:
@@ -3065,10 +3142,7 @@ def import_records(
                 "source_description": _text(record.get(field_map["description"])),
                 "price": source_price,
                 "sale_price": source_sale_price,
-                "purchase_unit": (
-                    _text(record.get(field_map["purchase_unit"])) or "stuk"
-                    if field_map.get("purchase_unit") else "stuk"
-                ),
+                "purchase_unit": purchase_unit,
                 "sales_unit": (
                     _text(record.get(field_map["sales_unit"])) or "stuk"
                     if field_map.get("sales_unit") else "stuk"
@@ -3226,7 +3300,7 @@ def import_records(
                     "ean", "vendor", "brand", "source_description",
                     "sale_price", "cost_price",
                     "purchase_unit", "sales_unit",
-                    "purchase_units_per_sales_unit", "stock_quantity",
+                    "purchase_units_per_sales_unit", "unit_calculation_mode", "stock_quantity",
                     "available", "product_type", "product_group_name",
                 ):
                     if field in product_maker_overrides:
@@ -3251,6 +3325,7 @@ def import_records(
                     "collection_index",
                     "product_maker_overrides",
                     "manual_purchase_price",
+                    "kous_compatibiliteit",
                 )
                 if isinstance(existing_raw.get(key), dict)
                 and existing_raw.get(key)
@@ -3385,17 +3460,25 @@ def import_records(
                     f"Producten verwerken: {record_index} van {total_records}",
                 )
         if seen:
-            placeholders = ",".join("?" for _ in seen)
+            invoice_managed = {
+                str(row["sku"])
+                for row in conn.execute(
+                    "SELECT sku,raw_data_json FROM products WHERE source_present=1"
+                ).fetchall()
+                if _is_invoice_managed_product(row["raw_data_json"])
+            }
+            active_seen = seen | invoice_managed
+            placeholders = ",".join("?" for _ in active_seen)
             stats["missing"] = conn.execute(
                 f"SELECT COUNT(*) FROM products WHERE sku NOT IN ({placeholders}) AND source_present=1",
-                tuple(seen),
+                tuple(active_seen),
             ).fetchone()[0]
             conn.execute(
                 f"""UPDATE products SET source_present=0,stock_quantity=0,available=0,
                     shopify_status='draft',
                     shopify_draft_since=COALESCE(shopify_draft_since,?),
                     updated_at=? WHERE sku NOT IN ({placeholders})""",
-                (now, now, *seen),
+                (now, now, *active_seen),
             )
         if slug == "valkenpower" and conn.execute(
             """SELECT 1 FROM sqlite_master
@@ -3873,6 +3956,57 @@ def _persist_product_maker_local_image(
         "source": "handmatige upload",
     }
 
+
+
+def save_manual_product_units(
+    slug: str, sku: str, *, purchase_unit: str, sales_unit: str,
+    purchase_units_per_sales_unit: Any, unit_calculation_mode: str,
+) -> dict[str, Any]:
+    """Save per-product units as durable PIM overrides."""
+    purchase_unit = str(purchase_unit or "").strip()
+    sales_unit = str(sales_unit or "").strip()
+    mode = str(unit_calculation_mode or "multiply").strip().casefold()
+    try:
+        factor = float(str(purchase_units_per_sales_unit).replace(",", "."))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("De omrekenfactor is geen geldig getal.") from exc
+    if not purchase_unit or not sales_unit:
+        raise ValueError("Inkoop- en verkoopeenheid zijn verplicht.")
+    if factor <= 0:
+        raise ValueError("De omrekenfactor moet groter zijn dan nul.")
+    if mode not in {"multiply", "divide"}:
+        raise ValueError("De rekenwijze moet multiply of divide zijn.")
+    path = init_supplier_database(slug)
+    now = utc_now()
+    with _connect(path) as conn:
+        row = conn.execute(
+            "SELECT raw_data_json FROM products WHERE sku=?", (sku,)
+        ).fetchone()
+        if not row:
+            raise ValueError(f"Onbekend PIM-artikel: {sku}")
+        try:
+            raw = json.loads(row["raw_data_json"] or "{}")
+        except json.JSONDecodeError:
+            raw = {}
+        overrides = raw.setdefault("product_maker_overrides", {})
+        overrides.update({
+            "purchase_unit": purchase_unit,
+            "sales_unit": sales_unit,
+            "purchase_units_per_sales_unit": factor,
+            "unit_calculation_mode": mode,
+            "units_saved_at": now,
+        })
+        conn.execute(
+            """UPDATE products SET purchase_unit=?,sales_unit=?,
+               purchase_units_per_sales_unit=?,unit_calculation_mode=?,
+               raw_data_json=?,updated_at=? WHERE sku=?""",
+            (purchase_unit, sales_unit, factor, mode,
+             json.dumps(raw, ensure_ascii=False), now, sku),
+        )
+    saved = get_supplier_product(slug, sku)
+    if not saved:
+        raise RuntimeError("PIM-teruglezing na opslaan is mislukt.")
+    return saved
 
 def save_product_maker_values(
     slug: str, sku: str, values: dict[str, Any],

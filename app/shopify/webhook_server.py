@@ -10,6 +10,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from app.shopify.client import get_shopify_settings
 from app.shopify.derived_inventory import process_webhook
+from app.shopify.certilas_loyalty import process_loyalty_webhook
+from app.shopify.certilas_draft_pricing import process_draft_order_webhook
+from app.shopify.return_discount import process_return_discount_webhook
 
 
 MAX_BODY_BYTES = 5 * 1024 * 1024
@@ -69,11 +72,27 @@ class ShopifyWebhookHandler(BaseHTTPRequestHandler):
         try:
             payload = json.loads(body)
             with PROCESSING_LOCK:
-                result = process_webhook(
-                    self.headers.get("X-Shopify-Topic") or "",
-                    self.headers.get("X-Shopify-Webhook-Id") or "",
-                    payload,
+                topic = self.headers.get("X-Shopify-Topic") or ""
+                webhook_id = self.headers.get("X-Shopify-Webhook-Id") or ""
+                draft_pricing_result = process_draft_order_webhook(
+                    topic, webhook_id, payload
                 )
+                inventory_result = process_webhook(topic, webhook_id, payload)
+                return_discount_result = process_return_discount_webhook(
+                    topic, webhook_id, payload
+                )
+                if return_discount_result.get("status") in {"completed", "redeemed"}:
+                    loyalty_result = {"status": "ignored", "reason": "return_discount_order"}
+                else:
+                    loyalty_result = process_loyalty_webhook(
+                        topic, webhook_id, payload
+                    )
+                result = {
+                    "certilas_draft_pricing": draft_pricing_result,
+                    "inventory": inventory_result,
+                    "return_discount": return_discount_result,
+                    "certilas_loyalty": loyalty_result,
+                }
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             self._reply(400, {"error": str(exc)})
             return

@@ -48,11 +48,46 @@ def test_existing_vp_taxonomy_and_custom_tree_are_never_sent(value):
     assert payload["variants"][0]["price"] == "25.00"
 
 
-@pytest.mark.parametrize("slug,match", [("valkenpower", None), ("kentie", None)])
-def test_new_products_keep_initial_fields(slug, match):
-    result = _input(product(slug), match)
-    assert "tags" in result
+@pytest.mark.parametrize("slug", ["valkenpower", "kentie"])
+def test_new_products_only_allow_non_vp_tags(slug):
+    p = product(slug, sku="VP-TEST" if slug == "valkenpower" else "KNT-TEST")
+    p["vendor"] = "Valkenpower" if slug == "valkenpower" else "Kentie"
+    result = _input(p, None)
+    assert ("tags" in result) == (slug != "valkenpower")
     assert "metafields" in result
+
+
+@pytest.mark.parametrize("identity", [
+    {"_supplier_slug": "valkenpower"}, {"_supplier_slug": "vp"},
+    {"sku": "VP-TEST"}, {"vendor": "Valkenpower"},
+])
+def test_new_vp_tags_blocked_with_each_supplier_identity(identity):
+    p = product("", "TEST")
+    p["vendor"] = "Falco"
+    p.update(identity)
+    assert "tags" not in _input(p, None)
+
+
+def test_new_vp_family_does_not_introduce_tags():
+    rows = _grouped_product_rows([product(sku="VP-A"), product(sku="VP-B")], {},
+                                 group_variants=False)
+    assert rows
+    assert all("tags" not in row["input"] for row in rows)
+
+
+def test_bulk_upload_blocks_accidental_new_vp_tags():
+    from app.shopify.sync import _assert_supplier_tree_safe
+    with pytest.raises(ValueError, match="VP-tags"):
+        _assert_supplier_tree_safe([{"input": {
+            "tags": ["Afgeleide tag"], "variants": [{"sku": "VP-NEW"}],
+        }}], "productSet")
+
+
+def test_product_maker_blocks_new_vp_tags():
+    from app.product_maker_standalone.shopify import _protect_existing_tree
+    payload = {"tags": ["Afgeleide tag"], "title": "Brugkrik"}
+    _protect_existing_tree("VP-NEW", None, payload)
+    assert payload == {"title": "Brugkrik"}
 
 
 def test_existing_vp_family_preserves_fields_for_every_variant():
@@ -182,3 +217,26 @@ def test_product_maker_cannot_replace_existing_vp_tree():
     assert "tags" not in payload and "category" not in payload and "metafields" not in payload
     assert payload["title"] == "Nieuwe titel"
     assert allowed == [{"namespace": "pim", "key": "afmetingen", "value": "10 cm"}]
+
+
+def test_vp_shipping_weight_and_loadmeter_are_sent():
+    p = product()
+    p["weight_grams"] = 26500
+    p["_raw_data"] = {"shipzip_volumetric_weight": "0.084375"}
+    p["_shopify_metafield_mapping"] = {
+        "product:shipzip.volumetric_weight": {
+            "owner": "product", "namespace": "shipzip",
+            "key": "volumetric_weight", "type": "number_decimal",
+            "source_field": "shipzip_volumetric_weight",
+        }
+    }
+    updates = []
+    payload = _input(p, existing(), metafield_updates=updates)
+    assert payload["variants"][0]["inventoryItem"]["measurement"] == {
+        "weight": {"value": 26.5, "unit": "KILOGRAMS"}
+    }
+    assert updates == [{
+        "ownerId": "gid://shopify/Product/1",
+        "namespace": "shipzip", "key": "volumetric_weight",
+        "type": "number_decimal", "value": "0.084375",
+    }]

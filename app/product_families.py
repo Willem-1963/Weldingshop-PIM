@@ -10,6 +10,9 @@ from typing import Any
 
 from app.suppliers.hub import supplier_database_path
 from app.suppliers.hub import get_supplier, init_supplier_database, utc_now
+from app.suppliers.certilas_order_units import (
+    load_order_units, sales_unit_packaging_label,
+)
 
 
 PROCESS_LABELS = {
@@ -217,6 +220,7 @@ def certilas_family_preview(database_path: str | Path | None = None) -> list[dic
                 ORDER BY position,id LIMIT 1) image_url
                FROM products p WHERE source_present=1"""
         ).fetchall()
+        order_units = load_order_units(connection)
     finally:
         connection.close()
     grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
@@ -300,6 +304,9 @@ def certilas_family_preview(database_path: str | Path | None = None) -> list[dic
                     ))),
                 )))
             ).strip()
+            item["packaging_option_label"] = sales_unit_packaging_label(
+                item["packaging_option_label"], order_units.get(item.get("sku"))
+            )
             if len(lengths) > 1 and item.get("length"):
                 length_label = (
                     "Lengte "

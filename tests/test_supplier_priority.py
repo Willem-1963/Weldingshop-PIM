@@ -7,8 +7,9 @@ from app.shopify.sync import _priority_matches
 from app.suppliers import hub
 
 
-def match(sku, pid, status="ACTIVE"):
-    return {"variant": {"sku": sku}, "product": {"id": pid, "status": status}}
+def match(sku, pid, status="ACTIVE", barcode=""):
+    return {"variant": {"sku": sku, "barcode": barcode},
+            "product": {"id": pid, "status": status}}
 
 
 @pytest.mark.parametrize("status", ["DRAFT", "ARCHIVED"])
@@ -53,3 +54,17 @@ def test_save_priority_preserves_options_and_can_disable(tmp_path, monkeypatch):
     assert hub.supplier_priority_rule({"slug": "valkenpower"})["supplier_slug"] == "rhodius-abrasives-gmbh"
     assert hub.supplier_priority_rule({"slug": "valkenpower", "request_options": {
         "supplier_priority": {"supplier_slug": "", "status": "DRAFT"}}})["supplier_slug"] == ""
+
+def test_priority_uses_unique_ean_when_supplier_article_number_is_wrong():
+    barcode = "4011890099612"
+    existing = {"VP-210480": match("VP-210480", "vp", barcode=barcode)}
+    preferred = {"210481": match("210481", "rh", barcode=barcode)}
+    blocked, rows, details = _priority_matches(
+        "valkenpower",
+        [{"sku": "VP-210480", "supplier_sku": "210480", "ean": barcode}],
+        existing, preferred, "Rhodius", "ARCHIVED")
+    assert blocked == {"VP-210480"}
+    assert rows == [{"input": {"id": "vp", "status": "ARCHIVED"}}]
+    assert details == [{"sku": "VP-210480", "preferred_vendor": "Rhodius",
+                        "preferred_sku": "210481", "preferred_product_id": "rh",
+                        "status": "ARCHIVED"}]

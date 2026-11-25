@@ -108,3 +108,34 @@ def test_shop_pack_override_cannot_silently_follow_a_different_article_ean():
     from app.suppliers.certilas_order_units import with_pack_overrides
     with pytest.raises(ValueError,match='afwijkend EAN'):
         with_pack_overrides({'10001':{'ean':'new-ean'}},{'10001':{'ean':'old-ean','kg_per_pack':2,'reason':'Winkelpak','updated_at':'2026-10-09'}})
+
+
+def test_recorded_sales_policy_is_data_driven_and_traceable():
+    import json
+    from app.suppliers.certilas_order_units import load_order_units, order_notice
+    c=sqlite3.connect(':memory:')
+    c.execute('create table certilas_order_units(sku text primary key,rule_json text)')
+    c.execute('create table certilas_sales_unit_policies(sku text primary key,ean text,physical_pack_kg real,portal_minimum_kg real,supplier_minimum_packs integer,sales_mode text,shop_packs_per_unit integer,decision_source text,decision_reason text,evidence_json text,policy_version integer,evaluated_at text,updated_at text)')
+    portal={'ean':'123','minimum_quantity':1,'quantity_step':1,'kg_per_order_unit':13.2,'minimum_order_kg':13.2}
+    c.execute('insert into certilas_order_units values (?,?)',('A',json.dumps(portal)))
+    c.execute('insert into certilas_sales_unit_policies values (?,?,?,?,?,?,?,?,?,?,?,?,?)',('A','123',2,13.2,7,'supplier_minimum',7,'supplier_minimum','hele pakken',json.dumps({'source':'portal'}),3,'now','now'))
+    rule=load_order_units(c)['A']
+    assert rule['minimum_order_kg']==14
+    assert rule['shop_packs_per_unit']==7
+    p={'sku':'A','ean':'123','_supplier_slug':'certilas','kg_per_sales_unit':2,'_certilas_order_unit':rule}
+    assert '7 pakken van 2 kg (14 kg totaal)' in order_notice(p)
+
+
+def test_sales_velocity_policy_can_sell_one_physical_pack():
+    from app.suppliers.certilas_order_units import with_sales_policies, order_notice
+    portal={'A':{'ean':'123','minimum_order_kg':20}}
+    policy={'A':{'ean':'123','physical_pack_kg':5,'portal_minimum_kg':20,'supplier_minimum_packs':4,'sales_mode':'single_pack','shop_packs_per_unit':1,'decision_source':'sales_velocity','decision_reason':'omloop','policy_version':2,'evaluated_at':'now','updated_at':'now'}}
+    rule=with_sales_policies(portal,policy)['A']
+    assert rule['minimum_order_kg']==5
+    p={'sku':'A','ean':'123','_supplier_slug':'certilas','kg_per_sales_unit':5,'_certilas_order_unit':rule}
+    assert 'één pak van 5 kg' in order_notice(p)
+
+
+def test_blocked_policy_removes_unproven_unit():
+    from app.suppliers.certilas_order_units import with_sales_policies
+    assert with_sales_policies({'A':{'ean':'123'}},{'A':{'sales_mode':'blocked'}})=={}

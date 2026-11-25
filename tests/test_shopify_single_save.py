@@ -124,3 +124,36 @@ def test_single_save_detects_variant_before_documents(monkeypatch, tmp_path):
         assert connection.execute(
             "SELECT shopify_status FROM products WHERE sku='VAR-1'"
         ).fetchone()[0] == "active"
+
+
+def test_invoice_save_preserves_single_product_content_price_and_status(monkeypatch, tmp_path):
+    import json
+    database = tmp_path / 'supplier.sqlite'
+    with sqlite3.connect(database) as db:
+        db.execute('CREATE TABLE products(sku,shopify_handle,shopify_status,updated_at)')
+        db.execute("INSERT INTO products(sku) VALUES('50601')")
+    calls = []
+    class Client:
+        shop_domain = 'example.myshopify.com'
+        def find_variant_by_sku(self, sku):
+            return {'id':'gid://shopify/ProductVariant/2','sku':sku,'title':'Default Title',
+                    'product':{'id':'gid://shopify/Product/1','title':'Aansluitsok',
+                               'handle':'aansluitsok','status':'ACTIVE','vendor':'Benegas',
+                               'variants':{'nodes':[{'id':'gid://shopify/ProductVariant/2'}]}}}
+        def graphql(self, query, variables):
+            calls.append((query, variables))
+            return {'productVariantsBulkUpdate':{'productVariants':[{'id':'gid://shopify/ProductVariant/2','sku':'50601'}],'userErrors':[]}}
+    monkeypatch.setattr(sync,'get_shopify_settings',lambda:{'enabled':True})
+    monkeypatch.setattr(sync,'get_supplier',lambda slug:{'name':'Gasflessen.nl'})
+    monkeypatch.setattr(sync,'supplier_route',lambda slug:SimpleNamespace(shopify_vendor_names=('Benegas',)))
+    monkeypatch.setattr(sync,'_source_products',lambda slug:[{'sku':'50601','cost_price':8.45,'sale_price':None,'source_title':'HD SOK factuuromschrijving','raw_data_json':json.dumps({'invoice_import':{'source':'purchase_invoice'}})}])
+    monkeypatch.setattr(sync.ShopifyClient,'from_settings',lambda:Client())
+    monkeypatch.setattr(sync,'supplier_database_path',lambda slug:database)
+    monkeypatch.setattr(sync,'_input',lambda *a,**kw: (_ for _ in ()).throw(AssertionError('Geen contentvervanging voor factuurimport')))
+    result=sync.upload_pim_product_draft('gasflessen-nl-72784841','50601')
+    assert result['invoice_only_update']
+    assert result['title']=='Aansluitsok'
+    assert len(calls)==1
+    assert calls[0][1]=={'productId':'gid://shopify/Product/1','variants':[{'id':'gid://shopify/ProductVariant/2','inventoryItem':{'cost':'8.45'}}]}
+    with sqlite3.connect(database) as db:
+        assert db.execute('SELECT shopify_status FROM products').fetchone()[0]=='active'

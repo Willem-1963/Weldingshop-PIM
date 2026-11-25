@@ -71,6 +71,7 @@ def test_normal_sync_bypasses_productset_and_inventory_cleanup(monkeypatch):
     monkeypatch.setattr(sync, "_source_products", lambda slug: [product()])
     monkeypatch.setattr(sync.ShopifyClient, "from_settings", lambda: object())
     monkeypatch.setattr(sync, "_shopify_products", lambda *a, **kw: existing())
+    monkeypatch.setattr(sync, "scan_internal_components", lambda client: {"protected": [], "mismatched": []})
     def forbidden(*a, **kw):
         raise AssertionError("Structure/inventory must not be written")
     monkeypatch.setattr(sync, "_grouped_product_rows", forbidden)
@@ -84,3 +85,25 @@ def test_normal_sync_bypasses_productset_and_inventory_cleanup(monkeypatch):
     assert "productVariantsBulkUpdate" in calls[0][1]
     assert "productSet" not in calls[0][1]
     assert result["sales_prices_changed"] == result["inventory_quantities_changed"] == 0
+
+
+def test_reports_missing_piece_and_package_units_separately():
+    matches = existing(); matches.pop('200140-STUK')
+    assert plan_existing_units([product()], matches)['unit_completeness'] == {
+        'missing_piece_units': ['200140-STUK'], 'missing_package_units': [],
+        'missing_piece_count': 1, 'missing_package_count': 0,
+    }
+    matches = existing(); matches.pop('200140')
+    assert plan_existing_units([product()], matches)['unit_completeness'] == {
+        'missing_piece_units': [], 'missing_package_units': ['200140'],
+        'missing_piece_count': 0, 'missing_package_count': 1,
+    }
+
+
+def test_normal_sync_never_changes_shopify_sales_prices():
+    p = product()
+    for value in (None, 9, 100):
+        p['sale_price'] = value
+        variants = [v for row in plan_existing_units([p], existing())['rows'] for v in row['variants']]
+        assert variants
+        assert all('price' not in v and 'compareAtPrice' not in v for v in variants)

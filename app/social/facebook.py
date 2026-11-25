@@ -3,16 +3,19 @@ from __future__ import annotations
 import fcntl
 import html
 import json
+import os
 import re
+import secrets
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
 
+import app.core.config  # laad config/settings.env voordat OAuth-instellingen worden gelezen
 from app.shopify.client import ShopifyClient
 from app.suppliers.hub import DATABASE_DIR, _decrypt, _encrypt
 
@@ -35,6 +38,7 @@ POST_FIELDS = (
     "id,message,created_time,permalink_url,"
     "attachments{url,target,subattachments{url,target}}"
 )
+OAUTH_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts"
 
 
 def now_utc():
@@ -75,6 +79,9 @@ def init_db():
           status TEXT NOT NULL, article_id TEXT, title TEXT, url TEXT,
           post_id TEXT, permalink TEXT, detail TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS oauth_states (
+          state TEXT PRIMARY KEY, expires_at TEXT NOT NULL
+        );
         """)
         db.execute("INSERT OR IGNORE INTO settings(id,page_id) VALUES(1,?)", (PAGE_ID,))
 
@@ -108,6 +115,91 @@ def record(status, detail, article=None, post=None):
 
 class MetaError(RuntimeError):
     pass
+
+
+def _oauth_config():
+    """Return the server-side Meta app settings, never exposing the secret to the UI."""
+    app_id = os.getenv("FACEBOOK_APP_ID", "").strip()
+    app_secret = os.getenv("FACEBOOK_APP_SECRET", "").strip()
+    redirect_uri = os.getenv("FACEBOOK_OAUTH_REDIRECT_URI", "").strip()
+    if not app_id or not app_secret or not redirect_uri:
+        raise ValueError(
+            "Facebook-koppelen is nog niet ingesteld. Voeg FACEBOOK_APP_ID, "
+            "FACEBOOK_APP_SECRET en FACEBOOK_OAUTH_REDIRECT_URI toe aan config/settings.env."
+        )
+    if not redirect_uri.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+        raise ValueError("FACEBOOK_OAUTH_REDIRECT_URI moet een HTTPS-adres zijn.")
+    return app_id, app_secret, redirect_uri
+
+
+def begin_oauth_connection():
+    """Create a short-lived, single-use OAuth state and return Meta's login URL."""
+    app_id, _, redirect_uri = _oauth_config()
+    init_db()
+    state = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+    with connect() as db:
+        db.execute("DELETE FROM oauth_states WHERE expires_at < ?", (now_utc(),))
+        db.execute("INSERT INTO oauth_states(state,expires_at) VALUES(?,?)", (state, expires_at))
+    return "https://www.facebook.com/" + GRAPH_VERSION + "/dialog/oauth?" + urlencode({
+        "client_id": app_id,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "scope": OAUTH_SCOPES,
+        "response_type": "code",
+    })
+
+
+def _oauth_get(path, params):
+    try:
+        response = requests.get(
+            f"https://graph.facebook.com/{GRAPH_VERSION}/{path}", params=params,
+            timeout=(10, 60),
+        )
+        payload = response.json()
+    except (requests.RequestException, ValueError):
+        raise MetaError("Meta is niet bereikbaar tijdens het koppelen.") from None
+    if not response.ok or payload.get("error"):
+        raise MetaError("Meta kon de Facebook-aanmelding niet afronden. Probeer opnieuw.")
+    return payload
+
+
+def complete_oauth_connection(state, code):
+    """Exchange an OAuth code for a long-lived user token and its fixed page token."""
+    app_id, app_secret, redirect_uri = _oauth_config()
+    init_db()
+    with connect() as db:
+        row = db.execute("SELECT expires_at FROM oauth_states WHERE state=?", (state,)).fetchone()
+        # Consume before calling Meta: a callback URL must never be replayable.
+        db.execute("DELETE FROM oauth_states WHERE state=?", (state,))
+    if not row or datetime.fromisoformat(row["expires_at"]) < datetime.now(timezone.utc):
+        raise ValueError("Deze Facebook-aanmelding is verlopen. Kies opnieuw ‘Koppel met Facebook’.")
+
+    short_lived = _oauth_get("oauth/access_token", {
+        "client_id": app_id, "client_secret": app_secret,
+        "redirect_uri": redirect_uri, "code": code,
+    }).get("access_token")
+    if not short_lived:
+        raise MetaError("Meta gaf geen toegangstoken terug. Probeer opnieuw.")
+    long_lived = _oauth_get("oauth/access_token", {
+        "grant_type": "fb_exchange_token", "client_id": app_id,
+        "client_secret": app_secret, "fb_exchange_token": short_lived,
+    }).get("access_token")
+    if not long_lived:
+        raise MetaError("Meta kon het toegangstoken niet verlengen. Probeer opnieuw.")
+
+    pages = MetaClient(long_lived).request("GET", "me/accounts", params={
+        "fields": "id,name,access_token", "limit": 100,
+    }).get("data") or []
+    page = next((item for item in pages if str(item.get("id")) == PAGE_ID), None)
+    page_token = (page or {}).get("access_token")
+    if not page_token:
+        raise ValueError(
+            "Dit Meta-account heeft geen toegang tot Facebook-pagina Weldingshop blog post. "
+            "Log in met een paginabeheerder en probeer opnieuw."
+        )
+    save_connection(page_token)
+    return page.get("name") or "Weldingshop blog post"
 
 
 class MetaClient:
@@ -152,8 +244,15 @@ class MetaClient:
         raise MetaError("Facebook-geschiedenis is te groot voor één controle. Er wordt niets geplaatst.")
 
     def publish(self, article):
-        return self.request("POST", f"{PAGE_ID}/feed", data={
-            "message": article["message"], "link": article["url"],
+        image_url = ((article.get("image") or {}).get("url") or "").strip()
+        if not image_url:
+            raise MetaError(
+                "Dit blogartikel heeft geen omslagafbeelding. Het wordt niet geplaatst, "
+                "zodat alle Facebook-blogposts hetzelfde grote fotobericht behouden."
+            )
+        return self.request("POST", f"{PAGE_ID}/photos", data={
+            "url": image_url,
+            "caption": article["message"],
         })
 
 
@@ -231,7 +330,7 @@ def fetch_articles(client=None, now=None):
                 excerpt = excerpt[:237].rsplit(" ", 1)[0] + "…"
             a["message"] = (
                 a["title"] + ("\n\n" + excerpt if excerpt else "")
-                + "\n\nLees het artikel op Weldingshop.nl."
+                + "\n\nLees het volledige artikel: " + a["url"]
                 + "\n\nWil je onze tips blijven volgen? Zet meldingen voor deze pagina aan."
             )
             rows.append(a)
@@ -349,6 +448,74 @@ def preview():
                 "articles": len(articles), "posts": count, "remaining": len(candidates)}
 
 
+def publish_preview(now=None):
+    """Publish the currently eligible next article after a fresh safety check."""
+    now = now or datetime.now(timezone.utc)
+    with processing_lock():
+        with connect() as db:
+            row = db.execute("SELECT * FROM settings WHERE id=1").fetchone()
+        if not row["token_encrypted"]:
+            raise ValueError("Koppel eerst Facebook.")
+        local = now.astimezone(TZ)
+        day = local.date().isoformat()
+        meta = MetaClient(_decrypt(row["token_encrypted"]))
+        try:
+            _, candidates, pending, _ = _prepare(meta, now)
+            if pending:
+                detail = "Eerdere plaatsing heeft een onzekere uitkomst. Controleer Historie; er wordt niets geplaatst."
+                with connect() as db:
+                    db.execute("UPDATE settings SET enabled=0,last_error=? WHERE id=1", (detail,))
+                record("onzeker", detail)
+                return {"status": "onzeker"}
+            if not row["backfill"]:
+                candidates = [a for a in candidates if datetime.fromisoformat(
+                    a["publishedAt"].replace("Z", "+00:00")).astimezone(TZ).date() == local.date()]
+            if not candidates:
+                return {"status": "geen_artikel"}
+            a = candidates[0]
+            with connect() as db:
+                # A handmatige plaatsing mag vaker op één dag. Bewaar wel de eerste
+                # plaatsing, zodat de automatische 15-minutenplanning die dag stopt.
+                db.execute("INSERT OR IGNORE INTO daily_posts(page_id,local_day,article_id) VALUES(?,?,?)",
+                           (PAGE_ID, day, a["id"]))
+                db.execute(
+                    """INSERT INTO deliveries(page_id,article_id,title,url,message,
+                       status,started_at,local_day) VALUES(?,?,?,?,?,'verzenden',?,?)""",
+                    (PAGE_ID, a["id"], a["title"], a["url"], a["message"], now_utc(), day),
+                )
+            try:
+                result = meta.publish(a)
+                if not result.get("id"):
+                    raise MetaError("Meta bevestigde de plaatsing niet.")
+            except Exception:
+                with connect() as db:
+                    db.execute("UPDATE deliveries SET status='onzeker' WHERE page_id=? AND article_id=?",
+                               (PAGE_ID, a["id"]))
+                    db.execute("UPDATE settings SET enabled=0,last_error=? WHERE id=1",
+                               ("Plaatsing niet bevestigd. Controleer Facebook voordat opnieuw wordt geplaatst.",))
+                record("onzeker", "Meta bevestigde de plaatsing niet. Planning uitgezet om dubbelplaatsen te voorkomen.", a)
+                return {"status": "onzeker"}
+            post_id = str(result["id"])
+            permalink = "https://www.facebook.com/" + post_id
+            with connect() as db:
+                db.execute("""UPDATE deliveries SET status='geplaatst',post_id=?,permalink=?,
+                           finished_at=? WHERE page_id=? AND article_id=?""",
+                           (post_id, permalink, now_utc(), PAGE_ID, a["id"]))
+                db.execute("UPDATE settings SET last_error='' WHERE id=1")
+            record("geplaatst", "Handmatig vanuit het voorbeeld gedeeld met introductie en klikbare artikellink.", a,
+                   {"id": post_id, "permalink_url": permalink})
+            return {"status": "geplaatst", "article_id": a["id"], "post_id": post_id,
+                    "permalink": permalink}
+        except Exception as exc:
+            detail = str(exc) if isinstance(exc, MetaError) else "Controle niet voltooid. Er is niets geplaatst; controleer verbinding en historie."
+            with connect() as db:
+                db.execute("UPDATE settings SET last_error=? WHERE id=1", (detail,))
+                if isinstance(exc, MetaError) and "190" in detail:
+                    db.execute("UPDATE settings SET enabled=0 WHERE id=1")
+            record("fout", detail)
+            return {"status": "fout", "detail": detail}
+
+
 def run_daily(now=None):
     now = now or datetime.now(timezone.utc)
     with processing_lock():
@@ -423,7 +590,7 @@ def run_daily(now=None):
                     (post_id, permalink, now_utc(), PAGE_ID, a["id"]),
                 )
                 db.execute("UPDATE settings SET last_error='' WHERE id=1")
-            record("geplaatst", "Blog gedeeld met introductie en artikellink; Facebook verzorgt de linkvoorvertoning.", a,
+            record("geplaatst", "Blog gedeeld met introductie en klikbare artikellink.", a,
                    {"id": post_id, "permalink_url": permalink})
             return {"status": "geplaatst", "article_id": a["id"], "post_id": post_id}
         except Exception as exc:

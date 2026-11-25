@@ -31,3 +31,15 @@ Desktop.ini
 *.work.py
 .pytest_cache/
 .streamlit/
+
+# Local repair snapshots and one-off execution artifacts
+*.bak-*
+*.backup-*
+*.data-driven-*
+*.taxonomy-fix-*
+*.vp-scoped-*
+/tmp/
+/tmp-*
+/apply-schake-live-pim.py
+/finalize-schake-live-pim.py
+/update_pim_markup_50.py

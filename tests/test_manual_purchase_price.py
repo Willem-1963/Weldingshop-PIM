@@ -71,15 +71,17 @@ def test_editor_saves_and_switches_articles(monkeypatch):
     monkeypatch.setattr(page, 'save_manual_purchase_cost', save)
     app = AppTest.from_string("from app.web.purchase_prices import render_manual_purchase_price\nrender_manual_purchase_price('test')").run()
     assert not app.exception
-    assert app.number_input[0].value is None
-    app.number_input[0].set_value(249.5)
-    app.button[0].click().run()
+    price = next(x for x in app.number_input if x.label.startswith('Netto inkoopprijs'))
+    assert price.value is None
+    price.set_value(249.5)
+    next(x for x in app.button if x.label == 'Inkoopprijs opslaan').click().run()
     assert not app.exception
     assert saved == [('test', 'A', 249.5)]
     assert '249,50' in app.success[0].value
     app.selectbox[0].select('B').run()
-    assert app.number_input[0].value == 42
-    assert 'doos' in app.number_input[0].label
+    price = next(x for x in app.number_input if x.label.startswith('Netto inkoopprijs'))
+    assert price.value == 42
+    assert 'doos' in price.label
 
 
 @pytest.mark.parametrize('value,expected', [('222.25€',222.25),('€ 335,13',335.13),('1.234,56 EUR',1234.56),('EUR 1,234.56',1234.56),('op aanvraag',None),('NaN',None)])
@@ -114,5 +116,5 @@ def test_mapped_price_screen_shows_source_without_manual_entry(monkeypatch):
     app=AppTest.from_string("from app.web.purchase_prices import render_manual_purchase_price\nrender_manual_purchase_price('test','Dealer Price(Excl.VAT)')").run()
     assert not app.exception
     assert 'Dealer Price(Excl.VAT)' in app.info[0].value
-    assert not app.number_input
+    assert not any(x.label.startswith('Netto inkoopprijs') for x in app.number_input)
     assert app.metric[0].value == '€ 222,25'

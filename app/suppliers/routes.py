@@ -97,6 +97,7 @@ SHOPIFY_VENDOR_ALIASES = {
     "nische-europe-b-v": ("Nische",),
     "parker-torchology-b-v": ("Parker",),
     "pipeq-pipework-equipment": ("Pipeq Pipework Equipment", "Pipeq"),
+    "shine-europe": ("Riconlas B.V.", "SHINE"),
     "stv-las-en-snijtechniek-b-v": ("STV",),
     "telwin": ("Telwin",),
     "vynckier": ("Vynckier", "Vynckiers"),

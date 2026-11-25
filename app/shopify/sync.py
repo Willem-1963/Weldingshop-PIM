@@ -13,6 +13,7 @@ import uuid
 from calendar import monthrange
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -26,6 +27,14 @@ from app.shopify.client import (
     get_shopify_settings,
     set_collection_inventory_policy,
 )
+from app.shopify.internal_components import (
+    is_internal_component,
+    publication_cleanup_plan,
+    scan_internal_components,
+)
+from app.suppliers.canonical_product_fields import (
+    canonical_brand_for_skus, canonical_filter_metafields_for_product,
+)
 from app.suppliers.hub import (
     apply_source_transformations,
     get_supplier,
@@ -37,7 +46,8 @@ from app.suppliers.quality import quality_policy_for
 from app.suppliers.routes import supplier_route
 from app.suppliers.category_locks import (
     COLLECTION_TAG_VALUE_KEYS, locked_collection_tags, locked_metafields,
-    locked_tree_values,
+    STOREFRONT_FILTER_HG_TYPE_VALUES_KEY, locked_tree_values,
+    typed_metafields_from_authority, verified_category_import_lock,
 )
 from app.suppliers.rhodius_sales_unit import (
     apply_shopify_sales_unit, sales_unit_rule, shopify_stock_quantity,
@@ -50,9 +60,9 @@ from app.suppliers.certilas_order_units import (
 
 Progress = Callable[[int, str], None]
 
-NEW_COLLECTION_TAG_PREFIXES = ("cat-", "filter-")
+NEW_COLLECTION_TAG_PREFIXES = ("cat-", "filter-", "ws-tax-")
 BLOCKED_LEGACY_TAG_PREFIXES = ("set_", "set-")
-COLLECTION_CUSTOM_METAFIELD_KEYS = {
+COLLECTION_CUSTOM_METAFIELD_KEYS = frozenset({
     "productgroep",
     "uitvoering",
     "filter",
@@ -63,7 +73,8 @@ COLLECTION_CUSTOM_METAFIELD_KEYS = {
     "aandrijving",
     "model",
     "capaciteit",
-}
+    "filter_hg_type",
+})
 
 
 def _normalized_tag(value: Any) -> str:
@@ -131,6 +142,117 @@ def _desired_collection_metafields(
         for key, value in approved.items()
         if key in COLLECTION_CUSTOM_METAFIELD_KEYS and value
     }
+
+
+def approved_tree_typed_metafield_rows(
+    product: dict[str, Any],
+    existing: dict[str, Any] | None,
+    *,
+    explicit_approved_tree_write: bool = False,
+    lock_reader: Callable[[str], dict[str, Any] | None] | None = None,
+    expected_lock_digest: str = "",
+) -> list[dict[str, Any]]:
+    """Plan idempotent typed tree upserts; never called by normal sync."""
+    if not explicit_approved_tree_write:
+        return []
+    if lock_reader is None:
+        raise ValueError("Explicit approved-tree write requires a verified DB lock reader")
+    shopify_product = ((existing or {}).get("product") or {})
+    owner_id = str(shopify_product.get("id") or "")
+    if not owner_id:
+        raise ValueError("Explicit approved-tree write requires an existing Shopify product")
+    expected_sku = str(product.get("sku") or "").strip()
+    actual_sku = str(((existing or {}).get("variant") or {}).get("sku") or "").strip()
+    if not expected_sku or actual_sku != expected_sku:
+        raise ValueError("Explicit approved-tree write requires an exact SKU match")
+    raw_supplier_slug = str(product.get("_supplier_slug") or "")
+    raw_expected_supplier = str(product.get("vendor") or "")
+    raw_actual_supplier = str(shopify_product.get("vendor") or "")
+    supplier_slug = raw_supplier_slug.strip()
+    expected_supplier = raw_expected_supplier.strip()
+    actual_supplier = raw_actual_supplier.strip()
+    if not supplier_slug or not expected_supplier or not actual_supplier:
+        raise ValueError("Explicit approved-tree write requires non-empty supplier identity")
+    if (supplier_slug, expected_supplier, actual_supplier) != (
+        raw_supplier_slug, raw_expected_supplier, raw_actual_supplier,
+    ):
+        raise ValueError("Explicit approved-tree write requires exact trimmed supplier identity")
+    if expected_supplier != actual_supplier:
+        raise ValueError("Explicit approved-tree write requires an exact supplier match")
+    authority = verified_category_import_lock(
+        lock_reader, sku=expected_sku, supplier_slug=supplier_slug,
+        supplier_vendor=expected_supplier, expected_digest=expected_lock_digest,
+    )
+    approved = typed_metafields_from_authority(authority)
+    if STOREFRONT_FILTER_HG_TYPE_VALUES_KEY in authority.values:
+        variants = (shopify_product.get("variants") or {}).get("nodes") or []
+        variant_skus = [str(variant.get("sku") or "").strip() for variant in variants]
+        if variant_skus != [expected_sku]:
+            raise ValueError(
+                "storefront_filter_hg_type_values_json requires proof of an exact "
+                "single-variant Shopify product"
+            )
+    current = {
+        (str(field.get("namespace") or ""), str(field.get("key") or "")):
+            (str(field.get("type") or ""), str(field.get("value") or ""))
+        for field in (shopify_product.get("metafields") or {}).get("nodes") or []
+    }
+    updates = []
+    for identifier, field in approved.items():
+        namespace, key = identifier.split(".", 1)
+        desired = (field["type"], field["value"])
+        if current.get((namespace, key)) == desired:
+            continue
+        updates.append({
+            "ownerId": owner_id, "namespace": namespace, "key": key,
+            "type": field["type"], "value": field["value"],
+        })
+    return _metafield_upsert_rows(updates)
+
+
+def sync_approved_tree_typed_metafields(
+    client: ShopifyClient | None,
+    product: dict[str, Any],
+    existing: dict[str, Any] | None,
+    *,
+    dry_run: bool,
+    lock_reader: Callable[[str], dict[str, Any] | None],
+    expected_lock_digest: str,
+) -> list[dict[str, Any]]:
+    """Use one validated plan for dry-run and the dedicated real metafieldsSet path."""
+    rows = approved_tree_typed_metafield_rows(
+        product,
+        existing,
+        explicit_approved_tree_write=True,
+        lock_reader=lock_reader,
+        expected_lock_digest=expected_lock_digest,
+    )
+    if dry_run or not rows:
+        return rows
+    if client is None:
+        raise ValueError("Real approved-tree sync requires a Shopify client")
+    for row in rows:
+        fields = row.get("metafields") or []
+        if not fields or any(
+            set(field) != {"ownerId", "namespace", "key", "type", "value"}
+            or field.get("namespace") != "custom"
+            or field.get("key") != "filter_hg_type"
+            or field.get("type") != "list.single_line_text_field"
+            for field in fields
+        ):
+            raise ValueError("Approved-tree sync payload contains an unrelated field")
+        result = client.graphql(
+            """mutation($metafields:[MetafieldsSetInput!]!){
+              metafieldsSet(metafields:$metafields){
+                metafields{id} userErrors{field message code}
+              }}""",
+            row,
+        ).get("metafieldsSet") or {}
+        if result.get("userErrors"):
+            raise RuntimeError(
+                "Approved-tree metafield update failed: " + str(result["userErrors"])
+            )
+    return rows
 
 
 def _shopify_file_url(value: Any) -> str:
@@ -770,6 +892,19 @@ def _source_products(slug: str) -> list[dict[str, Any]]:
                     (item["sku"],),
                 ).fetchall()
             ]
+            item["_documents"] = [
+                dict(document)
+                for document in conn.execute(
+                    """
+                    SELECT document_type,title,language,source_url,shopify_file_id,
+                           shopify_cdn_url,quality_status
+                    FROM product_documents
+                    WHERE sku=? AND quality_status='passed'
+                    ORDER BY document_type,title,id
+                    """,
+                    (item["sku"],),
+                ).fetchall()
+            ]
             if not item["images"]:
                 fallback = quality_policy_for(
                     item.get("vendor"), supplier_slug=slug
@@ -834,6 +969,8 @@ def _sync_record_hash(
             )
         ),
     }
+    if product.get("_documents"):
+        payload["documents"] = product["_documents"]
     encoded = json.dumps(
         payload, ensure_ascii=False, sort_keys=True,
         separators=(",", ":"), default=str,
@@ -954,6 +1091,95 @@ def _apply_canonical_family_content(
             "position": 1,
             "alt_text": family.get("family_title") or product.get("source_title") or "",
         }]
+
+
+def _load_certilas_family_pim_context(
+    slug: str,
+) -> dict[str, dict[str, Any]]:
+    """Return family-proven facts and packaging without changing grouping."""
+    if str(slug or "").casefold() != "certilas":
+        return {}
+    path = supplier_database_path(slug)
+    with sqlite3.connect(path) as conn:
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if "product_families" not in tables:
+            return {}
+        rows = conn.execute(
+            "SELECT family_key,family_json FROM product_families"
+        ).fetchall()
+
+    result: dict[str, dict[str, Any]] = {}
+    for family_key, family_json in rows:
+        try:
+            family = json.loads(family_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        variants = family.get("variants") or []
+        facts_by_value: dict[str, dict[str, Any]] = {}
+        for variant in variants:
+            try:
+                raw = json.loads(variant.get("raw_data_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            facts = (raw.get("website_enrichment") or {}).get("facts") or {}
+            if isinstance(facts, dict) and facts:
+                identity = json.dumps(
+                    facts, ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":"),
+                )
+                facts_by_value[identity] = facts
+        safe_facts = (
+            next(iter(facts_by_value.values()))
+            if len(facts_by_value) == 1 else None
+        )
+        packaging_values = [
+            str(variant.get("package_label") or "").strip()
+            for variant in variants
+        ]
+        safe_packaging = (
+            packaging_values[0]
+            if packaging_values
+            and all(packaging_values)
+            and len(set(packaging_values)) == 1
+            else ""
+        )
+        for variant in variants:
+            sku = str(variant.get("sku") or "").strip().upper()
+            if not sku:
+                continue
+            result[sku] = {
+                "family_key": str(family_key),
+                "facts": safe_facts,
+                "facts_conflict": len(facts_by_value) > 1,
+                "packaging": safe_packaging,
+                "packaging_conflict": bool(packaging_values) and (
+                    not all(packaging_values)
+                    or len(set(packaging_values)) > 1
+                ),
+            }
+    return result
+
+
+def _apply_certilas_family_pim_context(
+    product: dict[str, Any], context: dict[str, Any]
+) -> None:
+    if not context:
+        return
+    product["_certilas_family_known"] = True
+    product["_certilas_family_facts"] = context.get("facts")
+    product["_certilas_family_facts_conflict"] = bool(
+        context.get("facts_conflict")
+    )
+    product["_certilas_family_packaging"] = str(
+        context.get("packaging") or ""
+    ).strip()
+    product["_certilas_family_packaging_conflict"] = bool(
+        context.get("packaging_conflict")
+    )
 
 
 def _validate_existing_family_layout(
@@ -1143,6 +1369,7 @@ def initialize_sync_baseline(slug: str) -> dict[str, int]:
     supplier = get_supplier(slug) or {}
     source = _source_products(slug)
     family_variant_options = _load_family_variant_options(slug)
+    certilas_family_pim_context = _load_certilas_family_pim_context(slug)
     for product in source:
         try:
             product["_raw_data"] = json.loads(
@@ -1161,6 +1388,10 @@ def initialize_sync_baseline(slug: str) -> dict[str, int]:
         )
         _apply_canonical_family_content(
             product, product["_family_variant_options"]
+        )
+        _apply_certilas_family_pim_context(
+            product,
+            certilas_family_pim_context.get(product["sku"].upper(), {}),
         )
     hashes = {
         product["sku"].upper(): _sync_record_hash(product, supplier)
@@ -1188,11 +1419,29 @@ def _missing_products(slug: str) -> list[dict[str, Any]]:
         conn.close()
 
 
+def _draft_status_lock_skus(supplier: dict[str, Any]) -> set[str]:
+    """Return owner-approved SKUs that automatic sync must keep on DRAFT."""
+    options = supplier.get("request_options") or {}
+    values = options.get("draft_status_lock_skus") or []
+    if isinstance(values, str):
+        values = values.split(",")
+    return {str(value or "").strip().upper() for value in values if str(value or "").strip()}
+
+
+def _product_set_row_skus(row: dict[str, Any]) -> set[str]:
+    variants = ((row.get("input") or {}).get("variants") or [])
+    return {str(item.get("sku") or "").strip().upper() for item in variants if str(item.get("sku") or "").strip()}
+
+
 def _staged_product_status(
     product_id: str,
     existing_status_by_product_id: dict[str, str],
+    *,
+    force_draft: bool = False,
 ) -> str:
-    """Preserve live products while new/draft products await validation."""
+    """Preserve live products unless an owner-approved draft lock applies."""
+    if force_draft:
+        return "DRAFT"
     if existing_status_by_product_id.get(product_id, "").upper() == "ACTIVE":
         return "ACTIVE"
     return "DRAFT"
@@ -1219,7 +1468,7 @@ def _shopify_products(
           }
           variants(first:100){
             nodes{
-              id sku price inventoryItem{id}
+              id sku barcode price inventoryItem{id unitCost{amount}}
               metafields(first:20,namespace:"custom"){
                 nodes{key value}
               }
@@ -1391,7 +1640,12 @@ def _apply_shopify_stock_availability(
             match and match["variant"]["inventoryItem"]["id"] in stocked
         )
         # Feed status actions must not override actual Shopify stock.
-        product["_keep_active_when_out_of_stock"] = False
+        # An explicitly approved category lock may still keep a catalog item
+        # visible at zero; inventoryPolicy remains DENY, so it is not orderable.
+        approved = locked_tree_values(product) or {}
+        product["_keep_active_when_out_of_stock"] = bool(
+            approved.get("keep_active_at_zero")
+        )
 
 
 def _stock_protected_missing_items(
@@ -1595,10 +1849,21 @@ def _apply_certilas_inventory_unit(product: dict[str, Any], variant: dict[str, A
         return
     inventory = variant.setdefault("inventoryItem", {})
     if inventory.get("cost") is not None:
-        inventory["cost"] = f"{float(inventory['cost']) * order_price_factor(product):.2f}"
+        mapped_cost = _mapped(product, "inventory.cost")
+        base_cost = (
+            mapped_cost if mapped_cost not in (None, "")
+            else product.get("cost_price")
+            if product.get("cost_price") is not None
+            else inventory["cost"]
+        )
+        total_cost = (
+            Decimal(str(base_cost)) * Decimal(str(order_price_factor(product)))
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        inventory["cost"] = f"{total_cost:.2f}"
     inventory["measurement"] = {"weight": {
         "value": float(rule["minimum_order_kg"]), "unit": "KILOGRAMS",
     }}
+
 
 def _certilas_source_decimal(
     product: dict[str, Any], key: str,
@@ -1637,7 +1902,7 @@ def _certilas_bundle_metafields(
     """Build the managed variant bundle fields from the Certilas PIM row."""
     if str(product.get("_supplier_slug") or "").casefold() != "certilas":
         return []
-    unit_weight = _certilas_source_decimal(product, "KG Ceweld Unit")
+    unit_weight = float(product.get("kg_per_sales_unit") or 0) or _certilas_source_decimal(product, "KG Ceweld Unit")
     bundle_weight = _certilas_source_decimal(product, "KG Ceweld Bundle")
     quantity = _certilas_mandatory_bundle_quantity(product)
     package_price_value = (
@@ -2052,6 +2317,58 @@ def _vp_specs_match_product_context(product: dict[str, Any], entries: list[dict[
     )
 
 
+def _pim_document_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    documents = product.get("_documents") or []
+    document_links: list[dict[str, str]] = []
+    source_links: list[dict[str, str]] = []
+    labels: list[str] = []
+    seen_cdn: set[str] = set()
+    seen_source: set[str] = set()
+    for document in documents:
+        label = str(document.get("title") or "").strip()
+        cdn_url = str(document.get("shopify_cdn_url") or "").strip()
+        source_url = str(document.get("source_url") or "").strip()
+        if (
+            label
+            and cdn_url.startswith("https://cdn.shopify.com/")
+            and cdn_url not in seen_cdn
+        ):
+            seen_cdn.add(cdn_url)
+            document_links.append({"label": label, "url": cdn_url})
+            labels.append(label)
+        if (
+            label
+            and source_url.startswith(("https://", "http://"))
+            and source_url not in seen_source
+        ):
+            seen_source.add(source_url)
+            source_links.append({"label": label, "url": source_url})
+    if not document_links:
+        return []
+    result = [
+        {
+            "namespace": "pim",
+            "key": "document_links",
+            "type": "json",
+            "value": json.dumps(document_links, ensure_ascii=False, separators=(",", ":")),
+        },
+        {
+            "namespace": "pim",
+            "key": "handleidingen",
+            "type": "multi_line_text_field",
+            "value": "|".join(dict.fromkeys(labels)),
+        },
+    ]
+    if source_links:
+        result.append({
+            "namespace": "pim",
+            "key": "document_source_links",
+            "type": "json",
+            "value": json.dumps(source_links, ensure_ascii=False, separators=(",", ":")),
+        })
+    return result
+
+
 def _valkenpower_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
     if str(product.get("_supplier_slug") or "").casefold() != "valkenpower":
         return []
@@ -2198,6 +2515,45 @@ def _vynckier_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
             "value": value,
         })
     return result
+
+
+def _kentie_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    if str(product.get("_supplier_slug") or "").casefold() != "kentie":
+        return []
+    raw = product.get("_raw_data") or {}
+    if not raw:
+        try:
+            raw = json.loads(product.get("raw_data_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw = {}
+    evidence = raw.get("kous_compatibiliteit") or {}
+    if not isinstance(evidence, dict):
+        return []
+    grouped = evidence.get("grouped") or []
+    compatibility = evidence.get("compatibility") or []
+    if not isinstance(grouped, list) or not isinstance(compatibility, list):
+        return []
+    lines = []
+    for row in grouped:
+        if not isinstance(row, dict):
+            continue
+        brand = str(row.get("brand") or "").strip()
+        types = [str(value).strip() for value in row.get("types") or [] if str(value).strip()]
+        if brand and types:
+            lines.append(f"{brand}: {', '.join(types)}")
+    if not lines or not compatibility:
+        return []
+    return [
+        {
+            "namespace": "pim", "key": "compatibiliteit",
+            "type": "multi_line_text_field", "value": "\n".join(lines)[:65535],
+        },
+        {
+            "namespace": "pim", "key": "compatibiliteit_json",
+            "type": "json",
+            "value": json.dumps(compatibility, ensure_ascii=False, separators=(",", ":")),
+        },
+    ]
 
 
 _WELDAS_SPEC_LABELS = {
@@ -2351,6 +2707,166 @@ def _weldas_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
     return result
 
 
+_CERTILAS_NON_SPEC_PREFIXES = (
+    "verpakking",
+    "gewicht per eenheid",
+    "prijs exclusief btw",
+    "prijs inclusief btw",
+    "bruto prijs",
+    "netto prijs",
+)
+
+
+def _certilas_clean_fact(value: Any) -> str:
+    text = html.unescape(str(value or "")).replace("\xa0", " ")
+    return re.sub(r"\s+", " ", text).strip(" \t\r\n;|")
+
+
+def _certilas_pim_spec_entries(product: dict[str, Any]) -> list[dict[str, str]]:
+    """Build family-safe technical facts from Certilas enrichment.
+
+    Price, package weight and bare diameter/length choices are deliberately
+    excluded. Those are variant/packaging data, not product specifications.
+    """
+    if str(product.get("_supplier_slug") or "").casefold() != "certilas":
+        return []
+    raw = product.get("_raw_data") or {}
+    if not raw:
+        try:
+            raw = json.loads(product.get("raw_data_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw = {}
+    if product.get("_certilas_family_known"):
+        if product.get("_certilas_family_facts_conflict"):
+            return []
+        facts = product.get("_certilas_family_facts") or {}
+    else:
+        facts = (raw.get("website_enrichment") or {}).get("facts") or {}
+    if not isinstance(facts, dict) or not facts:
+        return []
+
+    entries: list[dict[str, str]] = []
+
+    def add(label: Any, value: Any) -> None:
+        clean_label = _certilas_clean_fact(label)
+        clean_value = _certilas_clean_fact(value)
+        if clean_label and clean_value:
+            entries.append({"label": clean_label, "value": clean_value})
+
+    try:
+        filter_values = json.loads(product.get("filter_values_json") or "[]")
+    except (TypeError, json.JSONDecodeError):
+        filter_values = []
+    for filter_value in filter_values:
+        text = _certilas_clean_fact(filter_value)
+        if ":" not in text:
+            continue
+        label, value = text.split(":", 1)
+        if label.casefold() in {"lasproces", "materiaal"}:
+            add(label, value)
+
+    add("Type", facts.get("type"))
+
+    prose_properties: list[str] = []
+    for raw_property in facts.get("properties") or []:
+        property_text = _certilas_clean_fact(raw_property)
+        if not property_text:
+            continue
+        property_key = property_text.casefold()
+        if property_key.startswith(_CERTILAS_NON_SPEC_PREFIXES):
+            continue
+        if re.fullmatch(
+            r"(?:\d+(?:[.,]\d+)?\s*(?:x|×)\s*)+"
+            r"\d+(?:[.,]\d+)?\s*(?:mm|cm|m)",
+            property_text,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        pair = re.match(r"^(.{2,80}?):\s*(.+)$", property_text)
+        if pair:
+            add(pair.group(1), pair.group(2))
+        else:
+            prose_properties.append(property_text)
+    if prose_properties:
+        add("Eigenschappen", " • ".join(dict.fromkeys(prose_properties)))
+
+    applications = [
+        _certilas_clean_fact(value)
+        for value in facts.get("applications") or []
+        if _certilas_clean_fact(value)
+    ]
+    if applications:
+        add("Toepassingen", " • ".join(dict.fromkeys(applications)))
+
+    classifications = facts.get("classifications") or {}
+    if isinstance(classifications, dict):
+        for label, value in classifications.items():
+            add(label, value)
+
+    approvals = [
+        _certilas_clean_fact(value)
+        for value in facts.get("approvals") or []
+        if _certilas_clean_fact(value)
+    ]
+    if approvals:
+        add("Goedkeuringen", ", ".join(dict.fromkeys(approvals)))
+
+    positions = [
+        _certilas_clean_fact(value)
+        for value in facts.get("welding_positions") or []
+        if _certilas_clean_fact(value)
+    ]
+    if positions:
+        add("Lasposities", ", ".join(dict.fromkeys(positions)))
+
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in entries:
+        identity = (entry["label"].casefold(), entry["value"].casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduped.append(entry)
+    return deduped
+
+
+def _certilas_pim_metafields(product: dict[str, Any]) -> list[dict[str, str]]:
+    if str(product.get("_supplier_slug") or "").casefold() != "certilas":
+        return []
+    entries = _certilas_pim_spec_entries(product)
+    result: list[dict[str, str]] = []
+    if entries:
+        result.extend([
+            {
+                "namespace": "pim",
+                "key": "specificaties",
+                "type": "multi_line_text_field",
+                "value": "|".join(
+                    f"{entry['label']}: {entry['value']}" for entry in entries
+                ),
+            },
+            {
+                "namespace": "pim",
+                "key": "specs_json",
+                "type": "json",
+                "value": json.dumps(
+                    entries, ensure_ascii=False, separators=(",", ":")
+                ),
+            },
+        ])
+    family_packaging = _certilas_clean_fact(
+        product.get("_certilas_family_packaging")
+    )
+    if family_packaging:
+        result.append({
+            "namespace": "pim",
+            "key": "verpakking",
+            "type": "multi_line_text_field",
+            "value": f"Verpakking: {family_packaging}",
+        })
+    return result
+
+
 def _eligible(product: dict[str, Any]) -> bool:
     rhodius_rule = sales_unit_rule(product)
     if rhodius_rule and rhodius_rule["warning"]:
@@ -2492,6 +3008,14 @@ def _validate_product_content_gate(
         )
 
 
+def _is_vp_product(product: dict[str, Any]) -> bool:
+    return (
+        str(product.get("_supplier_slug") or "").strip().casefold() in {"valkenpower", "vp"}
+        or str(product.get("sku") or "").strip().upper().startswith("VP-")
+        or str(product.get("vendor") or "").strip().casefold() in {"valkenpower", "vp"}
+    )
+
+
 def _preserve_existing_shopify_tree(
     product: dict[str, Any],
     existing: dict[str, Any] | None,
@@ -2503,6 +3027,9 @@ def _preserve_existing_shopify_tree(
     All metafields are omitted from productSet because its list replacement
     semantics can delete omitted fields. Allowed fields use metafieldsSet.
     """
+    # New VP products must not introduce supplier-derived tags either.
+    if _is_vp_product(product):
+        product_input.pop("tags", None)
     if not existing:
         return
     # Tags/category/custom tree metafields are merchant-managed for ALL suppliers: normal
@@ -2637,6 +3164,13 @@ def _input(
     mapped_cost = _mapped(product, "inventory.cost")
     if mapped_cost not in (None, ""):
         variant["inventoryItem"]["cost"] = f"{float(mapped_cost):.2f}"
+    raw_weight_grams = product.get("weight_grams")
+    if raw_weight_grams not in (None, ""):
+        shipping_weight_kg = Decimal(str(raw_weight_grams)) / Decimal("1000")
+        if shipping_weight_kg.is_finite() and shipping_weight_kg > 0:
+            variant["inventoryItem"]["measurement"] = {"weight": {
+                "value": float(shipping_weight_kg), "unit": "KILOGRAMS",
+            }}
     _apply_certilas_inventory_unit(product, variant)
     if existing:
         variant["id"] = existing["variant"]["id"]
@@ -2746,9 +3280,12 @@ def _input(
     ]
     configured_product_metafields = _mapped_metafields(product, "product")
     supplier_standard_metafields = [
+        *_pim_document_metafields(product),
         *_valkenpower_pim_metafields(product),
         *_vynckier_pim_metafields(product),
+        *_kentie_pim_metafields(product),
         *_weldas_pim_metafields(product),
+        *_certilas_pim_metafields(product),
     ]
     merged_metafields = {
         (item["namespace"], item["key"]): item
@@ -2758,6 +3295,20 @@ def _input(
             *supplier_standard_metafields,
         ]
     }
+    canonical_brand = canonical_brand_for_skus(
+        product.get("sku"), product.get("supplier_sku"), variant.get("sku"),
+    )
+    if canonical_brand:
+        merged_metafields[("custom", "merk")] = {
+            "namespace": "custom", "key": "merk",
+            "type": "single_line_text_field", "value": canonical_brand,
+        }
+    for canonical_field in canonical_filter_metafields_for_product(
+        ((existing or {}).get("product") or {}).get("id"),
+        ((existing or {}).get("product") or {}).get("handle"),
+        product.get("sku"), product.get("supplier_sku"), variant.get("sku"),
+    ):
+        merged_metafields[("custom", canonical_field["key"])] = canonical_field
     # Approved file imports win over derived values and configured mappings,
     # including explicitly empty levels (which must not be reintroduced).
     approved_categories = (
@@ -2786,6 +3337,19 @@ def _input(
         result["seo"] = {
             "title": str(seo_title or title)[:70],
             "description": str(seo_description or "")[:320],
+        }
+    elif not existing:
+        plain_description = html.unescape(re.sub(
+            r"<[^>]+>", " ", str(description or "")
+        ))
+        plain_description = re.sub(r"\s+", " ", plain_description).strip()
+        seo_suffix = " | Weldingshop"
+        seo_title = f"{title}{seo_suffix}"
+        if len(seo_title) > 70:
+            seo_title = f"{title[:70 - len(seo_suffix)].rstrip()}{seo_suffix}"
+        result["seo"] = {
+            "title": seo_title,
+            "description": plain_description[:160],
         }
     if existing:
         result["id"] = existing["product"]["id"]
@@ -3088,12 +3652,12 @@ def _price_only_variant_rows(
         # inkoopprijs inclusief de door ons te betalen legeringstoeslag.
         if product.get("cost_price") is not None:
             variant["inventoryItem"] = {
-                "cost": f"{float(product['cost_price']):.2f}",
+                "cost": f"{Decimal(str(product['cost_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}",
             }
         mapped_cost = _mapped(product, "inventory.cost")
         if mapped_cost not in (None, ""):
             variant["inventoryItem"] = {
-                "cost": f"{float(mapped_cost):.2f}",
+                "cost": f"{Decimal(str(mapped_cost)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):.2f}",
             }
         _apply_certilas_inventory_unit(product, variant)
         bundle_metafields = _certilas_bundle_metafields(product)
@@ -3178,6 +3742,60 @@ def _delete_certilas_stale_bundle_metafields(
     return deleted
 
 
+def _sync_existing_partial(client, slug, products, existing, progress_callback):
+    from app.shopify.partial_update import changed_fields
+    product_patches = {}
+    variant_patches = {}
+    details = []
+    for source in products:
+        sku = str(source.get("sku") or "").upper()
+        match = existing.get(sku)
+        if not match:
+            continue
+        product_patch, variant_patch = changed_fields(
+            source, match, _selling_price(source), _effective_description(source),
+        )
+        fields = []
+        if len(product_patch) > 1:
+            product_id = product_patch["id"]
+            previous = product_patches.get(product_id)
+            if previous and previous != product_patch:
+                raise ValueError(f"Tegenstrijdige wijzigingen voor Shopify-product {product_id}")
+            product_patches[product_id] = product_patch
+            fields.extend(key for key in product_patch if key != "id")
+        if len(variant_patch) > 1:
+            variant_patches.setdefault(match["product"]["id"], []).append(variant_patch)
+            fields.extend(key for key in variant_patch if key != "id")
+        if fields:
+            details.append({"sku": source["sku"], "fields": fields})
+    _run_rows(client, [{"input": patch} for patch in product_patches.values()],
+        """mutation call($input:ProductSetInput!){productSet(synchronous:true,input:$input){
+        product{id} userErrors{field message code}}}""",
+        f"{slug}-partial-content.jsonl", f"{slug}-partial-content-{uuid.uuid4().hex}",
+        progress_callback, 3, 4, "Alleen gewijzigde productvelden bijwerken")
+    _run_rows(client, [{"productId": pid, "variants": patches} for pid, patches in variant_patches.items()],
+        """mutation call($productId:ID!,$variants:[ProductVariantsBulkInput!]!){
+        productVariantsBulkUpdate(productId:$productId,variants:$variants){
+        productVariants{id sku} userErrors{field message code}}}""",
+        f"{slug}-partial-variants.jsonl", f"{slug}-partial-variants-{uuid.uuid4().hex}",
+        progress_callback, 4, 5, "Alleen gewijzigde variantvelden bijwerken")
+    if details:
+        fresh = _shopify_products(client, (get_supplier(slug) or {}).get("name") or slug, slug)
+        for source in products:
+            sku = str(source.get("sku") or "").upper()
+            if sku not in existing:
+                continue
+            if sku not in fresh:
+                raise RuntimeError(f"Shopify-verificatie mist SKU {sku}")
+            product_patch, variant_patch = changed_fields(
+                source, fresh[sku], _selling_price(source), _effective_description(source),
+            )
+            if len(product_patch) > 1 or len(variant_patch) > 1:
+                raise RuntimeError(f"Shopify-verificatie van gewijzigde velden mislukt voor {sku}")
+    return {"mode": "existing_partial_update", "updated": len(details), "details": details,
+            "unchanged": len(products) - len(details)}
+
+
 def _sync_prices_only(
     client: ShopifyClient,
     slug: str,
@@ -3222,6 +3840,10 @@ def _assert_supplier_tree_safe(rows, mutation):
     """Reject unsafe automatic tree writes before any bulk upload starts."""
     for row in rows:
         product_input = row.get("input") or {}
+        if "productSet" in mutation and "tags" in product_input and any(
+            _is_vp_product(variant) for variant in product_input.get("variants") or []
+        ):
+            raise ValueError("Leverancierssync mag geen VP-tags schrijven, ook niet bij nieuwe producten")
         if "productSet" in mutation and product_input.get("id"):
             if any(key in product_input for key in ("tags", "category", "metafields")):
                 raise ValueError("Leverancierssync mag de Shopify-boomlaag niet vervangen")
@@ -3354,8 +3976,17 @@ def _apply_collection_inventory_policies(
     return updated
 
 
+def _automatic_status_demotion_allowed(supplier: dict[str, Any]) -> bool:
+    """Require an explicit supplier opt-in before PIM lowers a Shopify status."""
+    return bool(
+        (supplier.get("request_options") or {}).get(
+            "allow_shopify_status_demotion", False
+        )
+    )
+
+
 def _draft_excluded_collections(client: ShopifyClient, supplier: dict[str, Any]) -> set[str]:
-    """Set every excluded collection member to draft, including non-supplier SKUs."""
+    """Read excluded members; lower their status only after explicit opt-in."""
     products = {}
     for rule in (supplier.get("request_options") or {}).get("continue_selling_collection_rules") or []:
         if not rule.get("exclude") or not rule.get("collection_id"):
@@ -3381,6 +4012,8 @@ def _draft_excluded_collections(client: ShopifyClient, supplier: dict[str, Any])
             if not next_cursor or next_cursor == cursor:
                 raise ValueError("Collectie kon niet volledig worden gelezen")
             cursor = next_cursor
+    if not _automatic_status_demotion_allowed(supplier):
+        return set(products)
     for product_id, status in products.items():
         if status == "DRAFT":
             continue
@@ -3407,9 +4040,26 @@ def _priority_matches(slug, source, existing, preferred, preferred_name, status)
         raise ValueError("Ongeldige productstatus voor voorrangregel.")
     def article(value):
         value = str(value or "").strip().upper()
-        return value.removeprefix("VP-") if slug == "valkenpower" else value
+        if slug != "valkenpower":
+            return value
+        value = value.removeprefix("VP-")
+        # Valkenpower adds S/D to a Rhodius article number for its own
+        # piece/dozen sales forms. Supplier ownership belongs to the six-digit
+        # Rhodius base article, so these suffixes must not bypass the preferred
+        # supplier guard and reactivate duplicate VP storefront products.
+        match = re.fullmatch(r"(\d{6})[SD]", value)
+        return match.group(1) if match else value
     preferred_by_sku = {str(m["variant"].get("sku") or "").strip().upper(): m
                         for m in preferred.values() if m["variant"].get("sku")}
+    preferred_ean_candidates: dict[str, list[dict[str, Any]]] = {}
+    for candidate in preferred.values():
+        ean = str(candidate["variant"].get("barcode") or "").strip()
+        if ean:
+            preferred_ean_candidates.setdefault(ean, []).append(candidate)
+    preferred_by_ean = {
+        ean: matches[0] for ean, matches in preferred_ean_candidates.items()
+        if len({str(match["variant"].get("id") or "") for match in matches}) == 1
+    }
     candidates = {str(p.get("sku") or "").strip().upper(): p for p in source}
     for sku in existing:
         candidates.setdefault(sku, {"sku": sku})
@@ -3418,6 +4068,9 @@ def _priority_matches(slug, source, existing, preferred, preferred_name, status)
     details = []
     for sku, product in candidates.items():
         match = preferred_by_sku.get(article(product.get("supplier_sku") or sku))
+        if not match:
+            ean = str(product.get("ean") or "").strip()
+            match = preferred_by_ean.get(ean) if ean else None
         if not match:
             continue
         current = existing.get(sku)
@@ -3435,6 +4088,36 @@ def _priority_matches(slug, source, existing, preferred, preferred_name, status)
             if any(m["product"]["id"] == pid and m["product"].get("status") != status
                    for m in existing.values())]
     return blocked, rows, details
+
+
+
+def _missing_product_status_rows(supplier, products, started):
+    """Keep missing products as drafts until retention expires, then archive."""
+    retention_months = int(supplier.get("delete_missing_after_months") or 2)
+    if not supplier.get("missing_products_to_draft", 1):
+        return [], [], retention_months
+    # Retain the stored setting name so existing supplier policies keep working.
+    archive_enabled = bool(supplier.get("delete_missing_products", 0))
+    cutoff = _months_ago(started, retention_months)
+    drafts, archives = [], []
+    for product in products:
+        if str(product.get("shopify_live_status") or "").upper() == "ARCHIVED":
+            continue
+        expired = False
+        if archive_enabled and product.get("shopify_draft_since"):
+            try:
+                since = datetime.fromisoformat(product["shopify_draft_since"])
+                if since.tzinfo is None:
+                    since = since.replace(tzinfo=timezone.utc)
+                expired = since <= cutoff
+            except ValueError:
+                pass
+        target = archives if expired else drafts
+        target.append({"input": {
+            "id": product["shopify_product_id"],
+            "status": "ARCHIVED" if expired else "DRAFT",
+        }})
+    return drafts, archives, retention_months
 
 
 def sync_all_products(
@@ -3462,14 +4145,34 @@ def sync_all_products(
         _run_rows(client, plan["rows"], UPDATE_MUTATION,
                   f"{slug}-sale-units.jsonl",
                   f"pim-{slug}-sale-units-{uuid.uuid4().hex[:8]}",
-                  progress_callback, 5, 95,
+                  progress_callback, 5, 85,
                   "Stuk- en verpakkingskostprijzen en bronbarcodes bijwerken")
-        _progress(progress_callback, 100, "Rhodius-verkoopeenheden bijgewerkt; Shopify-structuur behouden")
+        component_plan = publication_cleanup_plan(
+            scan_internal_components(client)
+        )
+        if component_plan["rows"]:
+            _run_rows(
+                client,
+                component_plan["rows"],
+                """mutation call($id:ID!,$input:[PublicationInput!]!){
+                  publishableUnpublish(id:$id,input:$input){
+                    userErrors{field message}
+                  }
+                }""",
+                f"{slug}-internal-components-unpublish.jsonl",
+                f"pim-{slug}-internal-components-unpublish-{uuid.uuid4().hex[:8]}",
+                progress_callback, 85, 98,
+                "Interne voorraadcomponenten van verkoopkanalen verwijderen",
+            )
+        _progress(progress_callback, 100, "Rhodius-verkoopeenheden bijgewerkt; interne componenten afgeschermd")
         return {"ok": True, "mode": "rhodius_existing_sale_units",
                 "products": len({row["productId"] for row in plan["rows"]}),
                 "variants": len(plan["units"]), "warnings": plan["warnings"],
                 "missing_units": plan["missing_units"],
-                "protected_stock_skus": plan["protected_stock_skus"],
+                "unit_completeness": plan["unit_completeness"],
+                "protected_stock_skus": component_plan["protected_stock_skus"],
+                "internal_components_unpublished": len(component_plan["rows"]),
+                "internal_component_signal_mismatches": component_plan["mismatched"],
                 "sales_prices_changed": 0, "inventory_quantities_changed": 0,
                 "variants_created": 0, "variants_deleted": 0}
     use_shopify_stock = (
@@ -3482,6 +4185,7 @@ def sync_all_products(
     started = datetime.now(timezone.utc)
     source = _source_products(slug)
     family_variant_options = _load_family_variant_options(slug)
+    certilas_family_pim_context = _load_certilas_family_pim_context(slug)
     vendor = supplier.get("name") or slug
     missing_source = _missing_products(slug)
     shopify_field_mapping = supplier.get("shopify_field_mapping") or {}
@@ -3493,8 +4197,15 @@ def sync_all_products(
             "continue_selling_when_out_of_stock", False
         )
     )
-    _apply_collection_inventory_policies(client, supplier)
-    excluded_product_ids = _draft_excluded_collections(client, supplier)
+    partial_mode = bool((supplier.get("request_options") or {}).get("existing_partial_update"))
+    if not partial_mode:
+        _apply_collection_inventory_policies(client, supplier)
+    exclusion_supplier = supplier
+    if partial_mode:
+        exclusion_supplier = {**supplier, "request_options": {
+            **(supplier.get("request_options") or {}), "allow_shopify_status_demotion": False,
+        }}
+    excluded_product_ids = _draft_excluded_collections(client, exclusion_supplier)
     collection_continue_skus, collection_deny_skus, collection_excluded_skus = (
         _collection_inventory_policy_skus(client, supplier)
     )
@@ -3551,6 +4262,10 @@ def sync_all_products(
         _apply_canonical_family_content(
             product, product["_family_variant_options"]
         )
+        _apply_certilas_family_pim_context(
+            product,
+            certilas_family_pim_context.get(product["sku"].upper(), {}),
+        )
     all_source = source
     previous_hashes = _load_sync_hashes(slug)
     selected_source, current_hashes, detected_changes = (
@@ -3580,6 +4295,22 @@ def sync_all_products(
     )
     source = _without_excluded_products(source, existing, excluded_product_ids, collection_excluded_skus)
     missing_source = _without_excluded_products(missing_source, existing, excluded_product_ids, collection_excluded_skus)
+    partial_result = None
+    if (supplier.get("request_options") or {}).get("existing_partial_update"):
+        partial_existing = [p for p in source if p["sku"].upper() in existing]
+        source = [p for p in source if p["sku"].upper() not in existing]
+        # Validate new candidates before writing any existing records.
+        complete_partial_new = [p for p in source if _complete_for_new_product(p)] if supplier.get("sync_new_product_policy") == "add_complete" else []
+        _validate_product_content_gate(complete_partial_new, complete_partial_new)
+        partial_result = _sync_existing_partial(client, slug, partial_existing, existing, progress_callback)
+        _save_sync_hashes(slug, {p["sku"].upper(): current_hashes[p["sku"].upper()] for p in partial_existing},
+                          {p["sku"].upper() for p in all_source})
+        if not complete_partial_new:
+            return {"ok": True, "products": len(all_source), "uploaded_or_updated": partial_result["updated"],
+                    "existing_partial_update": partial_result, "new_skipped_by_policy_or_incomplete": len(source),
+                    "finished_at": datetime.now(timezone.utc).isoformat()}
+        source = complete_partial_new
+        missing_source = []
     priority = supplier_priority_rule({**supplier, "slug": slug})
     preferred_vendor_duplicates: list[dict[str, str]] = []
     preferred_slug = priority.get("supplier_slug")
@@ -3594,6 +4325,8 @@ def sync_all_products(
             slug, all_source, existing, preferred_products, preferred["name"],
             priority.get("status", "DRAFT"),
         )
+        if not _automatic_status_demotion_allowed(supplier):
+            status_rows = []
         _run_rows(
             client, status_rows,
             """mutation call($input:ProductSetInput!){
@@ -3731,7 +4464,7 @@ def sync_all_products(
     unavailable = [
         product for product in priced_to_sync if not _eligible(product)
     ]
-    _validate_product_content_gate(priced_to_sync, all_source)
+    _validate_product_content_gate(priced_to_sync, source if partial_result is not None else all_source)
     sync_source = list(priced_to_sync)
     excluded = [
         *unavailable, *existing_unpriced, *isolated_missing_image,
@@ -3760,6 +4493,7 @@ def sync_all_products(
     )
     desired_status = supplier.get("sync_product_status") or "active"
     publish_all = bool(supplier.get("sync_publish_all", 1))
+    draft_status_lock_skus = _draft_status_lock_skus(supplier)
     # Bestaande actieve producten mogen tijdens een update nooit tijdelijk
     # verdwijnen. Alleen nieuwe en reeds bestaande conceptproducten wachten als
     # Concept op de live Shopify-controle.
@@ -3773,18 +4507,24 @@ def sync_all_products(
         row["input"]["status"] = _staged_product_status(
             str(row["input"].get("id") or ""),
             existing_status_by_product_id,
+            force_draft=bool(
+                _product_set_row_skus(row) & draft_status_lock_skus
+            ),
         )
     protected_draft_products = [
         *existing_unpriced,
         *isolated_missing_image,
         *isolated_incomplete_content,
     ]
-    unpriced_draft_rows = [
-        {"input": {"id": existing[product["sku"].upper()]["product"]["id"],
-                   "status": "DRAFT"}}
-        for product in protected_draft_products
-        if product["sku"].upper() in existing
-    ]
+    unpriced_draft_rows = (
+        [
+            {"input": {"id": existing[product["sku"].upper()]["product"]["id"],
+                       "status": "DRAFT"}}
+            for product in protected_draft_products
+            if product["sku"].upper() in existing
+        ]
+        if _automatic_status_demotion_allowed(supplier) else []
+    )
     _run_rows(
         client, unpriced_draft_rows,
         """mutation call($input:ProductSetInput!){
@@ -3870,12 +4610,18 @@ def sync_all_products(
             product, str(live_product.get("descriptionHtml") or "")
         ):
             live_errors.append(f"{product['sku']}: Shopify-tekst ontbreekt")
-        merchant_managed_tags = live_product["id"] in existing_status_by_product_id
+        merchant_managed_tags = (
+            live_product["id"] in existing_status_by_product_id or _is_vp_product(product)
+        )
         if not merchant_managed_tags and not _tags_meet_quality(product, live_product.get("tags") or []):
             live_errors.append(f"{product['sku']}: Shopify-tags ontbreken")
         expected_status = _staged_product_status(
             str(live_product.get("id") or ""),
             existing_status_by_product_id,
+            force_draft=(
+                str(product.get("sku") or "").strip().upper()
+                in draft_status_lock_skus
+            ),
         )
         if live_product.get("status") != expected_status:
             live_errors.append(
@@ -4042,6 +4788,7 @@ def sync_all_products(
             missing_matches[match["product"]["id"]] = {
                 **product,
                 "shopify_product_id": match["product"]["id"],
+                "shopify_live_status": match["product"].get("status"),
                 "shopify_inventory_item_id": match["variant"][
                     "inventoryItem"
                 ]["id"],
@@ -4060,22 +4807,12 @@ def sync_all_products(
         if product["shopify_inventory_item_id"]
         not in missing_stock_protected
     }
-    draft_missing_enabled = bool(supplier.get("missing_products_to_draft", 1))
-    delete_missing_enabled = (
-        draft_missing_enabled
-        and bool(supplier.get("delete_missing_products", 0))
+    missing_status_supplier = (
+        supplier if _automatic_status_demotion_allowed(supplier)
+        else {**supplier, "missing_products_to_draft": 0}
     )
-    draft_rows = (
-        [
-            {
-                "input": {
-                    "id": product["shopify_product_id"],
-                    "status": "DRAFT",
-                }
-            }
-            for product in missing_matches.values()
-        ]
-        if draft_missing_enabled else []
+    draft_rows, archive_rows, retention_months = _missing_product_status_rows(
+        missing_status_supplier, missing_matches.values(), started
     )
     _run_rows(
         client,
@@ -4096,43 +4833,23 @@ def sync_all_products(
         "Ontbrekende producten op Concept zetten",
     )
 
-    retention_months = int(supplier.get("delete_missing_after_months") or 2)
-    cutoff = _months_ago(started, retention_months)
-    expired = []
-    if delete_missing_enabled:
-        for product in missing_matches.values():
-            draft_since = product.get("shopify_draft_since")
-            if not draft_since:
-                continue
-            try:
-                started_missing = datetime.fromisoformat(draft_since)
-            except ValueError:
-                continue
-            if started_missing.tzinfo is None:
-                started_missing = started_missing.replace(tzinfo=timezone.utc)
-            if started_missing <= cutoff:
-                expired.append(product)
-    delete_rows = [
-        {"input": {"id": product["shopify_product_id"]}}
-        for product in expired
-    ]
     _run_rows(
         client,
-        delete_rows,
+        archive_rows,
         """
-        mutation call($input:ProductDeleteInput!){
-          productDelete(input:$input){
-            deletedProductId
-            userErrors{field message code}
+        mutation call($input:ProductUpdateInput!){
+          productUpdate(product:$input){
+            product{id status}
+            userErrors{field message}
           }
         }
         """,
-        f"{slug}-missing-deletes.jsonl",
-        f"pim-{slug}-missing-delete-{uuid.uuid4().hex[:8]}",
+        f"{slug}-missing-archives.jsonl",
+        f"pim-{slug}-missing-archive-{uuid.uuid4().hex[:8]}",
         progress_callback,
         60,
         61,
-        "Verlopen conceptproducten verwijderen",
+        "Verlopen conceptproducten archiveren",
     )
 
     inventory_source_products = [] if use_shopify_stock else sync_source
@@ -4248,14 +4965,30 @@ def sync_all_products(
         refreshed[product["sku"].upper()]["product"]["id"]
         for product in sync_source
     }
+    draft_status_locked_product_ids = {
+        refreshed_product_ids[product["sku"].upper()]
+        for product in sync_source
+        if str(product.get("sku") or "").strip().upper()
+        in draft_status_lock_skus
+    }
     active_product_ids = (
         {
             refreshed_product_ids[product["sku"].upper()]
             for product in eligible
             if refreshed_product_ids[product["sku"].upper()]
             not in media_blocked_product_ids
+            and refreshed_product_ids[product["sku"].upper()]
+            not in draft_status_locked_product_ids
         }
         if desired_status == "active" else set()
+    )
+    protected_internal_product_ids = {
+        refreshed_product_ids[product["sku"].upper()]
+        for product in sync_source
+        if is_internal_component(product, str(product.get("sku") or ""))
+    }
+    publishable_active_product_ids = (
+        active_product_ids - protected_internal_product_ids
     )
     activation_status_rows = [
         {"input": {"id": product_id, "status": "ACTIVE"}}
@@ -4277,15 +5010,20 @@ def sync_all_products(
             "id": product_id,
             "input": publication_input,
         }
-        for product_id in sorted(active_product_ids)
+        for product_id in sorted(publishable_active_product_ids)
     ] if publish_all else []
+    unpublish_product_ids = (
+        set(protected_internal_product_ids) | draft_status_locked_product_ids
+    )
+    if not publish_all:
+        unpublish_product_ids.update(refreshed_product_ids.values())
     unpublish_rows = [
         {
             "id": product_id,
             "input": publication_input,
         }
-        for product_id in sorted(set(refreshed_product_ids.values()))
-    ] if not publish_all else []
+        for product_id in sorted(unpublish_product_ids)
+    ]
     _run_rows(
         client,
         unpublish_rows,
@@ -4329,6 +5067,7 @@ def sync_all_products(
     preserved_active_product_ids = {
         product_id for product_id in synced_product_ids
         if existing_status_by_product_id.get(product_id, "").upper() == "ACTIVE"
+        and product_id not in draft_status_locked_product_ids
     }
     expected_active_ids = active_product_ids | preserved_active_product_ids
     expected_draft_ids = synced_product_ids - expected_active_ids
@@ -4362,6 +5101,7 @@ def sync_all_products(
     )
     result = {
         "products": len(all_source),
+        "existing_partial_update": partial_result,
         "change_detection": {
             "mode": "changed_only" if changed_only else "full",
             "total": len(all_source),
@@ -4369,9 +5109,12 @@ def sync_all_products(
             "unchanged_skipped": len(all_source) - len(source),
             "details": change_details,
         },
-        "uploaded_or_updated": len(sync_source),
+        "uploaded_or_updated": len(sync_source) + (partial_result["updated"] if partial_result else 0),
         "new_product_policy": new_product_policy,
-        "new_complete_added": len(complete_new),
+        "new_complete_candidates": len(complete_new),
+        "new_complete_added": sum(
+            product in sync_source for product in complete_new
+        ),
         "new_skipped_by_policy_or_incomplete": len(
             skipped_new_incomplete
         ),
@@ -4394,7 +5137,8 @@ def sync_all_products(
         ),
         "missing_in_source": len(missing_source),
         "missing_set_to_draft": len(draft_rows),
-        "missing_deleted": len(delete_rows),
+        "missing_deleted": 0,
+        "missing_archived": len(archive_rows),
         "missing_retention_months": retention_months,
         "rejected_shopify_images": rejected_media_count,
         "repaired_incomplete_media_products": repaired_media_products,
@@ -4410,6 +5154,12 @@ def sync_all_products(
         "publications": len(publications),
         "product_status_setting": desired_status,
         "publish_all_channels": publish_all,
+        "draft_status_locked_skus": sorted(draft_status_lock_skus),
+        "protected_stock_skus": sorted({
+            str(product.get("sku") or "")
+            for product in sync_source
+            if is_internal_component(product, str(product.get("sku") or ""))
+        }),
         "location_id": location_id,
         "finished_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -4618,7 +5368,14 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
         source["_raw_data"] = {}
     source["_shopify_field_mapping"] = supplier.get("shopify_field_mapping") or {}
     source["_shopify_metafield_mapping"] = supplier.get("shopify_metafield_mapping") or {}
-    source["inventory_policy"] = "continue"
+    continue_selling = bool(
+        (supplier.get("request_options") or {}).get(
+            "continue_selling_when_out_of_stock", False
+        )
+    )
+    source["inventory_policy"] = (
+        "continue" if continue_selling else "deny"
+    )
     source["_supplier_slug"] = slug
 
     client = ShopifyClient.from_settings()
@@ -4635,10 +5392,11 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
                 "de leveranciersroutes blijven gescheiden."
             )
     product = (existing_variant or {}).get("product") or {}
+    invoice_only_update = bool(existing_variant and source["_raw_data"].get("invoice_import"))
     variant_title = str((existing_variant or {}).get("title") or "").strip()
     selected_options = (existing_variant or {}).get("selectedOptions") or []
     product_options = product.get("options") or []
-    is_variant = bool(existing_variant) and (
+    is_variant = invoice_only_update or bool(existing_variant) and (
         len(((product.get("variants") or {}).get("nodes") or [])) > 1
         or any(
             str(option.get("name") or "").strip().casefold() != "title"
@@ -4666,7 +5424,18 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
         if existing_variant else None
     )
     commercial_updates = []
-    product_input = _input(source, existing, metafield_updates=commercial_updates)
+    if invoice_only_update:
+        # Invoice descriptions are purchase evidence, not replacement storefront
+        # content. A missing sale price must never turn into a zero selling price.
+        cost = source.get("cost_price")
+        if cost is None or Decimal(str(cost)) <= 0:
+            raise ValueError("Factuurartikel mist een positieve inkoopprijs.")
+        product_input = {"variants": [{
+            "id": existing_variant["id"],
+            "inventoryItem": {"cost": str(cost)},
+        }]}
+    else:
+        product_input = _input(source, existing, metafield_updates=commercial_updates)
     if is_variant:
         variant_input = product_input["variants"][0]
         variant_input.pop("optionValues", None)
@@ -4712,6 +5481,7 @@ def upload_pim_product_draft(slug: str, sku: str) -> dict[str, Any]:
             "id": variants[0]["id"], "title": product.get("title"),
             "handle": product.get("handle"), "status": product.get("status"),
             "sku": source["sku"], "target_type": "variant",
+            "invoice_only_update": invoice_only_update,
             "admin_url": f"https://{client.shop_domain}/admin/products/{numeric_id}",
             "documents": 0,
         }

@@ -654,6 +654,7 @@ def save_sync_schedule(
     new_product_policy: str = "existing_only",
     changed_only: bool = False,
     family_on_change: bool = False,
+    existing_partial_update: bool = False,
     dealer_pricelist_enabled: bool = False,
 ) -> str | None:
     if product_status not in ("draft", "active"):
@@ -685,6 +686,7 @@ def save_sync_schedule(
             dealer_pricelist_enabled
         )
         request_options["sync_family_on_change"] = bool(family_on_change)
+        request_options["existing_partial_update"] = bool(existing_partial_update)
         conn.execute(
             """
             UPDATE suppliers SET sync_enabled=?,sync_frequency=?,sync_time=?,

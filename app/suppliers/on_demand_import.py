@@ -634,6 +634,11 @@ def import_official_website_product(
     supplier = get_supplier(slug)
     if not supplier:
         raise ValueError("Onbekende leverancier.")
+    from app.suppliers.invoice_import import import_invoice_article
+    invoice_result = import_invoice_article(supplier, article)
+    if invoice_result is not None:
+        progress(7, "Artikel uit factuur beschikbaar in de PIM")
+        return invoice_result
     route = supplier_route(slug)
     enrichment_profile = get_enrichment_profile(slug)
     if not bool(

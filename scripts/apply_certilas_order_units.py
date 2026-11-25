@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime,timezone
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app.suppliers.hub import supplier_database_path
-from app.suppliers.certilas_order_units import load_order_units,verified_order_unit,load_pack_overrides,with_pack_overrides
+from app.suppliers.certilas_order_units import (load_order_units,verified_order_unit,load_pack_overrides,with_pack_overrides,load_sales_policies,with_sales_policies,sales_unit_packaging_label)
 from app.shopify.sync import _price_only_variant_rows,_certilas_bundle_metafields
 from app.shopify.client import ShopifyClient
 
@@ -55,8 +55,12 @@ def main():
  with sqlite3.connect(path) as c:
   c.row_factory=sqlite3.Row
   pim={r['sku']:dict(r) for r in c.execute('SELECT * FROM products WHERE source_present=1')}
+  if args.sku:
+   requested=set(args.sku)
+   pim.update({r['sku']:dict(r) for r in c.execute('SELECT * FROM products') if r['sku'] in requested})
   portal_units=dict(units)
   units=with_pack_overrides(units,load_pack_overrides(c))
+  units=with_sales_policies(units,load_sales_policies(c))
  matches={};source=[];missing=[];changes=[];fields=[];deletions=[]
  for prod in products:
   for v in prod['variants']['nodes']:
@@ -76,6 +80,12 @@ def main():
  for row in rows:
   for v in row['variants']:
    entry=next(m for m in matches.values() if m['variant']['id']==v['id']);before=entry['variant'];sku=before['sku'];p=pim[sku];rule=units[sku]
+   selected=before.get('selectedOptions') or []
+   packaging=next((x for x in selected if x.get('name')=='Verpakking'),None)
+   if packaging:
+    desired=sales_unit_packaging_label(packaging.get('value') or '',rule)
+    if desired!=packaging.get('value'):
+     v['optionValues']=[{'optionName':x['name'],'name':desired if x['name']=='Verpakking' else x['value']} for x in selected]
    fields.extend(dict(f,ownerId=v['id']) for f in v.pop('metafields',[]))
    for f in before['metafields']['nodes']:
     if f['key'] in {'verpakkingen_per_bundel','custom_minimale_afname'}:
@@ -112,6 +122,10 @@ def main():
   old=old_by_id[v['id']];inv=v.get('inventoryItem',{});old_inv=old['inventoryItem']
   if v.get('price') is not None and float(old['price'])!=float(v['price']):return True
   if inv.get('cost') is not None and (not old_inv.get('unitCost') or float(old_inv['unitCost']['amount'])!=float(inv['cost'])):return True
+  desired_options=v.get('optionValues')
+  if desired_options:
+   old_options=[{'optionName':x['name'],'name':x['value']} for x in old.get('selectedOptions') or []]
+   if desired_options!=old_options:return True
   weight=inv.get('measurement',{}).get('weight');previous=old_inv.get('measurement',{}).get('weight')
   return weight and (not previous or previous['unit']!=weight['unit'] or abs(previous['value']-weight['value'])>1e-6)
  write_rows=[dict(productId=r['productId'],variants=[v for v in r['variants'] if variant_changed(v)]) for r in rows]
@@ -147,6 +161,10 @@ def main():
    weight=a['inventoryItem']['measurement']['weight']
    if not weight or weight['unit']!='KILOGRAMS' or abs(weight['value']-v['inventoryItem']['measurement']['weight']['value'])>1e-6:errors.append((v['id'],'weight'))
    if v['inventoryItem'].get('cost') and float(a['inventoryItem']['unitCost']['amount'])!=float(v['inventoryItem']['cost']):errors.append((v['id'],'cost'))
+   if v.get('optionValues'):
+    expected={x['optionName']:x['name'] for x in v['optionValues']}
+    observed={x['name']:x['value'] for x in a.get('selectedOptions') or []}
+    if observed!=expected:errors.append((v['id'],'optionValues'))
  for f in fields:
   a={x['key']:x['value'] for x in actual[f['ownerId']]['metafields']['nodes']}
   if a.get(f['key'])!=f['value']:

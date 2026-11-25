@@ -19,6 +19,8 @@ from .service import ProductMakerService, utc_now
 
 def _protect_existing_tree(sku: str, existing_target, product_input):
     """Every existing supplier product keeps its merchant-owned Shopify tree."""
+    if str(sku).strip().upper().startswith("VP-"):
+        product_input.pop("tags", None)
     if not existing_target:
         return []
     from app.shopify.sync import COLLECTION_CUSTOM_METAFIELD_KEYS, _preserve_existing_shopify_tree

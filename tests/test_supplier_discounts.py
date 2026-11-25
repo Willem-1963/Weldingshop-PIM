@@ -221,6 +221,43 @@ def test_markup_on_cost_does_not_require_a_gross_supplier_price(
     assert row["Berekende verkoopprijs"] == 14.1
 
 
+def test_minimum_markup_on_cost_never_lowers_existing_sale_price(
+    tmp_path, monkeypatch,
+):
+    database = tmp_path / "minimum-markup.sqlite"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """CREATE TABLE products(
+               sku TEXT PRIMARY KEY,source_title TEXT,product_type TEXT,
+               category TEXT,category_full TEXT,price REAL,cost_price REAL,
+               sale_price REAL,gross_purchase_price_per_kg REAL,
+               kg_per_sales_unit REAL,source_present INTEGER,updated_at TEXT
+           )"""
+    )
+    connection.executemany(
+        "INSERT INTO products VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        [
+            ("HIGH", "Hoge prijs", "", "", "", 20, 10, 20,
+             None, None, 1, "now"),
+            ("LOW", "Lage prijs", "", "", "", 12, 10, 12,
+             None, None, 1, "now"),
+        ],
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(discounts, "init_supplier_database", lambda _slug: database)
+    monkeypatch.setattr(discounts, "get_supplier", lambda _slug: {"request_options": {}})
+    discounts.save_scoped_sales_price_rule(
+        "kentie", name="Minimum 41 procent", match_field="all",
+        match_value="", rule_type="minimum_markup_on_cost", rule_value=41,
+    )
+
+    rows = {row["SKU"]: row for row in discounts.preview_sales_prices("kentie", limit=None)}
+
+    assert rows["HIGH"]["Berekende verkoopprijs"] == 20
+    assert rows["LOW"]["Berekende verkoopprijs"] == 14.1
+
+
 def test_certilas_alloy_surcharge_is_part_of_cost_and_column_order(
     tmp_path, monkeypatch,
 ):
@@ -265,3 +302,18 @@ def test_certilas_alloy_surcharge_is_part_of_cost_and_column_order(
     assert row["Legeringstoeslag"] == 5
     assert row["Netto inkoopprijs / kostprijs"] == 65
     assert row["Berekende verkoopprijs"] == 71.5
+
+
+def test_certilas_supplier_discount_calculation_is_visible():
+    explanation = discounts.sales_price_calculation(
+        220.14, 165.12, 20, 'max_discount_over_discount', 209.14,
+    )
+    assert '€ 220,14 − € 165,12 = € 55,02' in explanation
+    assert '20% × € 55,02 = € 11,00' in explanation
+    assert '€ 209,14' in explanation
+
+
+def test_price_calculation_does_not_invent_a_missing_price():
+    assert 'Geen berekening mogelijk' in discounts.sales_price_calculation(
+        None, None, 20, 'max_discount_over_discount', None,
+    )

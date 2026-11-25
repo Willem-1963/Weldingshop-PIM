@@ -1,0 +1,941 @@
+{
+  "fixture_metadata": {
+    "kind": "scoped-curated-test-fixture",
+    "scope": "exact 72 desired near-25 products, 2 explicit removal products, and 1 outside-scope sentinel",
+    "provenance": "derived from sealed near-25 evidence captured 2026-10-21; not full catalog and not live proof",
+    "expected": {
+      "additions": 16,
+      "removals": 2,
+      "noops": 56,
+      "unexpected": 0
+    }
+  },
+  "products": [
+    {
+      "id": "gid://shopify/Product/10303909724489",
+      "sku": "VP-DP20HE",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794420342",
+      "sku": "VP-BVAL15",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-tussenklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794551414",
+      "sku": "VP-BVAL114",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-tussenklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794682486",
+      "sku": "VP-BVAL20",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-tussenklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794715254",
+      "sku": "VP-BVAL30",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-tussenklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794780790",
+      "sku": "VP-HP12VD",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838794879094",
+      "sku": "VP-HP24VD",
+      "supplier": "valkenpower",
+      "tags": [
+        "A2.02.01.03",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838828269686",
+      "sku": "VP-HF24L",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoortank",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838828302454",
+      "sku": "VP-HF50L",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoortank",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838828335222",
+      "sku": "VP-HF24R",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoortank",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838829416566",
+      "sku": "VP-4SM56F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838829449334",
+      "sku": "VP-4SM58F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838829482102",
+      "sku": "VP-4SM512F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838830235766",
+      "sku": "VP-DP60B8A",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838831775862",
+      "sku": "VP-DP40V12",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832103542",
+      "sku": "VP-DP40V24",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832300150",
+      "sku": "VP-DPK40V24",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832365686",
+      "sku": "VP-DP20E",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832398454",
+      "sku": "VP-DP30E",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832463990",
+      "sku": "VP-DP40E",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838832562294",
+      "sku": "VP-DP60E",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838838329462",
+      "sku": "VP-TEP700B",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851502198",
+      "sku": "VP-VAL114",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851534966",
+      "sku": "VP-VAL10",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "filter_bool_Selecteer_voetklep-type-york",
+        "filter_bool_Selecteer_Voetkleppen",
+        "marktplaats-changes-pending",
+        "PN7-links",
+        "set_generator-motor-en-pomp-accessoires",
+        "set_generator-motor-en-pomp-appendages-terugslagklep-tussenklep",
+        "VP-generator-motor-en-pomp-accessoires",
+        "VP-generator-motor-en-pomp-appendages-terugslagklep-tussenklep",
+        "vp_Voetkleppen",
+        "Wederverkoop",
+        "Weldingshop-Supplier",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851567734",
+      "sku": "VP-VAL15",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851600502",
+      "sku": "VP-VAL20",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851666038",
+      "sku": "VP-VAL30",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838851698806",
+      "sku": "VP-VAL034",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-voetklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838852714614",
+      "sku": "VP-DPK40V12",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838857957494",
+      "sku": "VP-P50KB2",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838859137142",
+      "sku": "VP-HP2A34",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838859169910",
+      "sku": "VP-HP2A10",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838869098614",
+      "sku": "VP-HA2",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871261302",
+      "sku": "VP-HP12W1",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871326838",
+      "sku": "VP-HP12W2",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871392374",
+      "sku": "VP-HP220WH",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871490678",
+      "sku": "VP-HP380W1",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871818358",
+      "sku": "VP-MJS100AUTO",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoorinstallatie",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838871851126",
+      "sku": "VP-MJS100AUTORVS",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoorinstallatie",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838898458742",
+      "sku": "VP-HT24M",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoortank",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838898524278",
+      "sku": "VP-HT50L",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-hydrofoortank",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838904782966",
+      "sku": "VP-OP06V12",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838904848502",
+      "sku": "VP-OP06V24",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838908977270",
+      "sku": "VP-MPS60",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838917300342",
+      "sku": "VP-PC08C",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-compressoren-generatoren-pompen-accessoires-onderdelen",
+        "cat-gereedschap",
+        "filter-productsoort-drukschakelaar",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838917365878",
+      "sku": "VP-PS02C",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-compressoren-generatoren-pompen-accessoires-onderdelen",
+        "cat-gereedschap",
+        "filter-productsoort-drukschakelaar",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838922248310",
+      "sku": "VP-MS14",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838922281078",
+      "sku": "VP-MS12",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838938206326",
+      "sku": "VP-MJSW3BL",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838938534006",
+      "sku": "VP-MTK1500",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838938566774",
+      "sku": "VP-MTK2000",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838955802742",
+      "sku": "VP-SWI250",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838955835510",
+      "sku": "VP-WSP550",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838955901046",
+      "sku": "VP-SP100",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956195958",
+      "sku": "VP-DSP370",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956228726",
+      "sku": "VP-WSP550V",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956294262",
+      "sku": "VP-BL2512N",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956327030",
+      "sku": "VP-BL2524N",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956359798",
+      "sku": "VP-DSP370V",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956458102",
+      "sku": "VP-SP100F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956490870",
+      "sku": "VP-MVS7",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956523638",
+      "sku": "VP-MVS10",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956556406",
+      "sku": "VP-MVS20",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956589174",
+      "sku": "VP-MVS10F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956621942",
+      "sku": "VP-MVS20F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956785782",
+      "sku": "VP-MVS7F",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838956818550",
+      "sku": "VP-BWT1025",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838957768822",
+      "sku": "VP-MSP800G",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838989684854",
+      "sku": "VP-MJ100L",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838989717622",
+      "sku": "VP-MJS100",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/9729547272521",
+      "sku": "VP-TEPC70B2",
+      "supplier": "valkenpower",
+      "tags": [
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/9739183292745",
+      "sku": "VP-P50KB2N",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-pomp",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838806773878",
+      "sku": "VP-CPTRVO",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-terugslagklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/6838806839414",
+      "sku": "VP-CPRVS",
+      "supplier": "valkenpower",
+      "tags": [
+        "cat-compressoren-generatoren-pompen",
+        "cat-gereedschap",
+        "cat-pompen",
+        "filter-productsoort-terugslagklep",
+        "Valkenpower",
+        "ws-tax-compressoren-generatoren-pompen"
+      ]
+    },
+    {
+      "id": "gid://shopify/Product/OUTSIDE",
+      "sku": "OTHER-1",
+      "supplier": "other-supplier",
+      "tags": [
+        "cat-pompen-like",
+        "merchant-keep"
+      ]
+    }
+  ]
+}
