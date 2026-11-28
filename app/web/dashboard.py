@@ -6202,8 +6202,6 @@ with source_sales_pricing_subtab:
         try:
             if not sales_name.strip():
                 raise ValueError("Geef de verkoopprijsregel eerst een naam.")
-            if scoped_sales_type == "none":
-                raise ValueError("Kies een rekenmethode en vul de waarde in.")
             if sales_scope == "sku" and not lookup_discount_product(
                 selected_slug, sales_match_value
             ):
@@ -6212,7 +6210,8 @@ with source_sales_pricing_subtab:
                 selected_slug,
                 name=sales_name,
                 match_field=sales_scope, match_value=sales_match_value,
-                rule_type=scoped_sales_type, rule_value=float(scoped_sales_value),
+                rule_type=scoped_sales_type,
+                rule_value=0.0 if scoped_sales_type == "none" else float(scoped_sales_value),
                 priority=int(scoped_sales_priority),
             )
             st.success("Verkoopprijsregel toegevoegd.")
